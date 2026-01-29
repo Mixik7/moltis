@@ -85,10 +85,12 @@ pub async fn start_gateway(bind: &str, port: u16) -> anyhow::Result<()> {
 
     // Wire live chat service (needs state reference, so done after state creation).
     if !registry.is_empty() {
-        let live_chat = Arc::new(LiveChatService::new(
-            Arc::clone(&registry),
-            Arc::clone(&state),
-        ));
+        let mut tool_registry = moltis_agents::tool_registry::ToolRegistry::new();
+        tool_registry.register(Box::new(moltis_tools::exec::ExecTool::default()));
+        let live_chat = Arc::new(
+            LiveChatService::new(Arc::clone(&registry), Arc::clone(&state))
+                .with_tools(tool_registry),
+        );
         state.set_chat(live_chat).await;
     }
 

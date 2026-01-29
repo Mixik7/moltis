@@ -109,6 +109,11 @@
     return el;
   }
 
+  function removeThinking() {
+    var el = document.getElementById("thinkingIndicator");
+    if (el) el.remove();
+  }
+
   // ── WebSocket ────────────────────────────────────────────────────
 
   function connect() {
@@ -131,7 +136,9 @@
           connected = true;
           reconnectDelay = 1000;
           setStatus("connected", "connected (v" + hello.protocol + ")");
-          addMsg("system", "Connected to moltis gateway v" + hello.server.version);
+          var now = new Date();
+          var ts = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          addMsg("system", "Connected to moltis gateway v" + hello.server.version + " at " + ts);
           fetchModels();
         } else {
           setStatus("", "handshake failed");
@@ -154,7 +161,38 @@
       if (frame.type === "event") {
         if (frame.event === "chat") {
           var p = frame.payload || {};
-          if (p.state === "delta" && p.text) {
+          if (p.state === "thinking") {
+            removeThinking();
+            var thinkEl = document.createElement("div");
+            thinkEl.className = "msg assistant thinking";
+            thinkEl.id = "thinkingIndicator";
+            // Safe: static hardcoded content, no user input
+            var dots = document.createElement("span");
+            dots.className = "thinking-dots";
+            dots.innerHTML = "<span></span><span></span><span></span>";
+            thinkEl.appendChild(dots);
+            msgBox.appendChild(thinkEl);
+            msgBox.scrollTop = msgBox.scrollHeight;
+          } else if (p.state === "thinking_done") {
+            removeThinking();
+          } else if (p.state === "tool_call_start") {
+            removeThinking();
+            var toolStartEl = document.createElement("div");
+            toolStartEl.className = "msg system tool-event";
+            // Safe: toolName comes from server-registered tool names, not user input,
+            // and is set via textContent which never interprets HTML.
+            toolStartEl.textContent = "\u2699 Running: " + (p.toolName || "tool") + "\u2026";
+            toolStartEl.id = "tool-" + p.toolCallId;
+            msgBox.appendChild(toolStartEl);
+            msgBox.scrollTop = msgBox.scrollHeight;
+          } else if (p.state === "tool_call_end") {
+            var toolDoneEl = document.getElementById("tool-" + p.toolCallId);
+            if (toolDoneEl) {
+              toolDoneEl.textContent = (p.success ? "\u2713" : "\u2717") + " " + (p.toolName || "tool");
+              toolDoneEl.className = "msg system tool-event " + (p.success ? "tool-ok" : "tool-err");
+            }
+          } else if (p.state === "delta" && p.text) {
+            removeThinking();
             if (!streamEl) {
               streamText = "";
               streamEl = document.createElement("div");
@@ -162,11 +200,14 @@
               msgBox.appendChild(streamEl);
             }
             streamText += p.text;
-            // Safe: renderMarkdown escapes first, then adds formatting tags
+            // Safe: renderMarkdown calls esc() first to escape all HTML entities,
+            // then only adds our own formatting tags (pre, code, strong)
             streamEl.innerHTML = renderMarkdown(streamText);
             msgBox.scrollTop = msgBox.scrollHeight;
           } else if (p.state === "final") {
+            removeThinking();
             if (p.text && streamEl) {
+              // Safe: renderMarkdown escapes via esc() before formatting
               streamEl.innerHTML = renderMarkdown(p.text);
             } else if (p.text && !streamEl) {
               addMsg("assistant", renderMarkdown(p.text), true);
@@ -174,6 +215,7 @@
             streamEl = null;
             streamText = "";
           } else if (p.state === "error") {
+            removeThinking();
             addMsg("error", "Chat error: " + (p.message || "unknown"));
             streamEl = null;
             streamText = "";

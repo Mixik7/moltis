@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use tokio_stream::Stream;
 
-use crate::model::{CompletionResponse, LlmProvider, StreamEvent, Usage};
+use crate::model::{CompletionResponse, LlmProvider, StreamEvent, ToolCall, Usage};
 
 pub struct OpenAiProvider {
     api_key: String,
@@ -24,6 +24,42 @@ impl OpenAiProvider {
     }
 }
 
+/// Convert tool schemas to OpenAI function-calling format.
+fn to_openai_tools(tools: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["parameters"],
+                }
+            })
+        })
+        .collect()
+}
+
+/// Parse tool_calls from an OpenAI response message.
+fn parse_tool_calls(message: &serde_json::Value) -> Vec<ToolCall> {
+    message["tool_calls"]
+        .as_array()
+        .map(|tcs| {
+            tcs.iter()
+                .filter_map(|tc| {
+                    let id = tc["id"].as_str()?.to_string();
+                    let name = tc["function"]["name"].as_str()?.to_string();
+                    let args_str = tc["function"]["arguments"].as_str().unwrap_or("{}");
+                    let arguments =
+                        serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
+                    Some(ToolCall { id, name, arguments })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[async_trait]
 impl LlmProvider for OpenAiProvider {
     fn name(&self) -> &str {
@@ -37,12 +73,16 @@ impl LlmProvider for OpenAiProvider {
     async fn complete(
         &self,
         messages: &[serde_json::Value],
-        _tools: &[serde_json::Value],
+        tools: &[serde_json::Value],
     ) -> anyhow::Result<CompletionResponse> {
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": self.model,
             "messages": messages,
         });
+
+        if !tools.is_empty() {
+            body["tools"] = serde_json::Value::Array(to_openai_tools(tools));
+        }
 
         let resp = self
             .client
@@ -56,9 +96,10 @@ impl LlmProvider for OpenAiProvider {
             .json::<serde_json::Value>()
             .await?;
 
-        let text = resp["choices"][0]["message"]["content"]
-            .as_str()
-            .map(|s| s.to_string());
+        let message = &resp["choices"][0]["message"];
+
+        let text = message["content"].as_str().map(|s| s.to_string());
+        let tool_calls = parse_tool_calls(message);
 
         let usage = Usage {
             input_tokens: resp["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32,
@@ -67,7 +108,7 @@ impl LlmProvider for OpenAiProvider {
 
         Ok(CompletionResponse {
             text,
-            tool_calls: vec![],
+            tool_calls,
             usage,
         })
     }

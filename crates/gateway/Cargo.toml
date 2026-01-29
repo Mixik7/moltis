@@ -11,6 +11,7 @@ moltis-sessions = { workspace = true }
 moltis-channels = { workspace = true }
 moltis-routing = { workspace = true }
 moltis-agents = { workspace = true }
+moltis-tools = { workspace = true }
 moltis-plugins = { workspace = true }
 moltis-cron = { workspace = true }
 moltis-media = { workspace = true }

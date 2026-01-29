@@ -6,10 +6,13 @@ use serde_json::Value;
 use tokio::task::AbortHandle;
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use moltis_agents::model::StreamEvent;
+use moltis_agents::prompt::build_system_prompt;
 use moltis_agents::providers::ProviderRegistry;
+use moltis_agents::runner::{run_agent_loop, RunnerEvent};
+use moltis_agents::tool_registry::ToolRegistry;
 
 use crate::broadcast::{broadcast, BroadcastOpts};
 use crate::services::{ChatService, ModelService, ServiceResult};
@@ -52,6 +55,7 @@ pub struct LiveChatService {
     providers: Arc<ProviderRegistry>,
     state: Arc<GatewayState>,
     active_runs: Arc<RwLock<HashMap<String, AbortHandle>>>,
+    tool_registry: Arc<ToolRegistry>,
 }
 
 impl LiveChatService {
@@ -60,7 +64,17 @@ impl LiveChatService {
             providers,
             state,
             active_runs: Arc::new(RwLock::new(HashMap::new())),
+            tool_registry: Arc::new(ToolRegistry::new()),
         }
+    }
+
+    pub fn with_tools(mut self, registry: ToolRegistry) -> Self {
+        self.tool_registry = Arc::new(registry);
+        self
+    }
+
+    fn has_tools(&self) -> bool {
+        !self.tool_registry.list_schemas().is_empty()
     }
 }
 
@@ -74,6 +88,12 @@ impl ChatService for LiveChatService {
             .to_string();
 
         let model_id = params.get("model").and_then(|v| v.as_str());
+        // Use streaming-only mode if explicitly requested or if no tools are registered.
+        let stream_only = params
+            .get("stream_only")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || !self.has_tools();
 
         let provider = if let Some(id) = model_id {
             self.providers.get(id).ok_or_else(|| {
@@ -95,68 +115,15 @@ impl ChatService for LiveChatService {
         let state = Arc::clone(&self.state);
         let active_runs = Arc::clone(&self.active_runs);
         let run_id_clone = run_id.clone();
+        let tool_registry = Arc::clone(&self.tool_registry);
 
         let handle = tokio::spawn(async move {
-            let messages = vec![serde_json::json!({
-                "role": "user",
-                "content": text,
-            })];
-
-            let mut stream = provider.stream(messages);
-            let mut accumulated = String::new();
-
-            while let Some(event) = stream.next().await {
-                match event {
-                    StreamEvent::Delta(delta) => {
-                        accumulated.push_str(&delta);
-                        broadcast(
-                            &state,
-                            "chat",
-                            serde_json::json!({
-                                "runId": run_id_clone,
-                                "state": "delta",
-                                "text": delta,
-                            }),
-                            BroadcastOpts::default(),
-                        )
-                        .await;
-                    }
-                    StreamEvent::Done(usage) => {
-                        debug!(
-                            run_id = %run_id_clone,
-                            input_tokens = usage.input_tokens,
-                            output_tokens = usage.output_tokens,
-                            "chat stream done"
-                        );
-                        broadcast(
-                            &state,
-                            "chat",
-                            serde_json::json!({
-                                "runId": run_id_clone,
-                                "state": "final",
-                                "text": accumulated,
-                            }),
-                            BroadcastOpts::default(),
-                        )
-                        .await;
-                        break;
-                    }
-                    StreamEvent::Error(msg) => {
-                        warn!(run_id = %run_id_clone, error = %msg, "chat stream error");
-                        broadcast(
-                            &state,
-                            "chat",
-                            serde_json::json!({
-                                "runId": run_id_clone,
-                                "state": "error",
-                                "message": msg,
-                            }),
-                            BroadcastOpts::default(),
-                        )
-                        .await;
-                        break;
-                    }
-                }
+            if stream_only {
+                // Streaming mode (no tools) — plain LLM text generation.
+                run_streaming(&state, &run_id_clone, provider, &text).await;
+            } else {
+                // Agent loop mode: LLM + tool call execution loop.
+                run_with_tools(&state, &run_id_clone, provider, &tool_registry, &text).await;
             }
 
             active_runs.write().await.remove(&run_id_clone);
@@ -188,5 +155,170 @@ impl ChatService for LiveChatService {
 
     async fn inject(&self, _params: Value) -> ServiceResult {
         Err("inject not yet implemented".into())
+    }
+}
+
+// ── Agent loop mode ─────────────────────────────────────────────────────────
+
+async fn run_with_tools(
+    state: &Arc<GatewayState>,
+    run_id: &str,
+    provider: Arc<dyn moltis_agents::model::LlmProvider>,
+    tool_registry: &Arc<ToolRegistry>,
+    text: &str,
+) {
+    let system_prompt = build_system_prompt(tool_registry);
+
+    // Broadcast tool events to the UI as they happen.
+    let state_for_events = Arc::clone(state);
+    let run_id_for_events = run_id.to_string();
+    let on_event: Box<dyn Fn(RunnerEvent) + Send + Sync> = Box::new(move |event| {
+        let state = Arc::clone(&state_for_events);
+        let run_id = run_id_for_events.clone();
+        tokio::spawn(async move {
+            let payload = match &event {
+                RunnerEvent::Thinking => serde_json::json!({
+                    "runId": run_id,
+                    "state": "thinking",
+                }),
+                RunnerEvent::ThinkingDone => serde_json::json!({
+                    "runId": run_id,
+                    "state": "thinking_done",
+                }),
+                RunnerEvent::ToolCallStart { id, name } => serde_json::json!({
+                    "runId": run_id,
+                    "state": "tool_call_start",
+                    "toolCallId": id,
+                    "toolName": name,
+                }),
+                RunnerEvent::ToolCallEnd { id, name, success } => serde_json::json!({
+                    "runId": run_id,
+                    "state": "tool_call_end",
+                    "toolCallId": id,
+                    "toolName": name,
+                    "success": success,
+                }),
+                RunnerEvent::TextDelta(text) => serde_json::json!({
+                    "runId": run_id,
+                    "state": "delta",
+                    "text": text,
+                }),
+                RunnerEvent::Iteration(n) => serde_json::json!({
+                    "runId": run_id,
+                    "state": "iteration",
+                    "iteration": n,
+                }),
+            };
+            broadcast(&state, "chat", payload, BroadcastOpts::default()).await;
+        });
+    });
+
+    match run_agent_loop(provider, tool_registry, &system_prompt, text, Some(&on_event)).await {
+        Ok(result) => {
+            info!(
+                run_id,
+                iterations = result.iterations,
+                tool_calls = result.tool_calls_made,
+                "agent run complete"
+            );
+            broadcast(
+                state,
+                "chat",
+                serde_json::json!({
+                    "runId": run_id,
+                    "state": "final",
+                    "text": result.text,
+                    "iterations": result.iterations,
+                    "toolCallsMade": result.tool_calls_made,
+                }),
+                BroadcastOpts::default(),
+            )
+            .await;
+        }
+        Err(e) => {
+            warn!(run_id, error = %e, "agent run error");
+            broadcast(
+                state,
+                "chat",
+                serde_json::json!({
+                    "runId": run_id,
+                    "state": "error",
+                    "message": e.to_string(),
+                }),
+                BroadcastOpts::default(),
+            )
+            .await;
+        }
+    }
+}
+
+// ── Streaming mode (no tools) ───────────────────────────────────────────────
+
+async fn run_streaming(
+    state: &Arc<GatewayState>,
+    run_id: &str,
+    provider: Arc<dyn moltis_agents::model::LlmProvider>,
+    text: &str,
+) {
+    let messages = vec![serde_json::json!({
+        "role": "user",
+        "content": text,
+    })];
+
+    let mut stream = provider.stream(messages);
+    let mut accumulated = String::new();
+
+    while let Some(event) = stream.next().await {
+        match event {
+            StreamEvent::Delta(delta) => {
+                accumulated.push_str(&delta);
+                broadcast(
+                    state,
+                    "chat",
+                    serde_json::json!({
+                        "runId": run_id,
+                        "state": "delta",
+                        "text": delta,
+                    }),
+                    BroadcastOpts::default(),
+                )
+                .await;
+            }
+            StreamEvent::Done(usage) => {
+                debug!(
+                    run_id,
+                    input_tokens = usage.input_tokens,
+                    output_tokens = usage.output_tokens,
+                    "chat stream done"
+                );
+                broadcast(
+                    state,
+                    "chat",
+                    serde_json::json!({
+                        "runId": run_id,
+                        "state": "final",
+                        "text": accumulated,
+                    }),
+                    BroadcastOpts::default(),
+                )
+                .await;
+                break;
+            }
+            StreamEvent::Error(msg) => {
+                warn!(run_id, error = %msg, "chat stream error");
+                broadcast(
+                    state,
+                    "chat",
+                    serde_json::json!({
+                        "runId": run_id,
+                        "state": "error",
+                        "message": msg,
+                    }),
+                    BroadcastOpts::default(),
+                )
+                .await;
+                break;
+            }
+        }
     }
 }
