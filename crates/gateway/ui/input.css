@@ -181,6 +181,48 @@
     background: none;
     padding: 4px 0;
   }
+  .msg.error-card {
+    align-self: center;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--error);
+    border-radius: 8px;
+    padding: 12px 16px;
+    max-width: 420px;
+  }
+  .error-icon {
+    font-size: 1.4rem;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .error-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .error-title {
+    font-weight: 600;
+    color: var(--error);
+    font-size: 0.85rem;
+    margin-bottom: 2px;
+  }
+  .error-detail {
+    color: var(--fg);
+    font-size: 0.8rem;
+    opacity: 0.85;
+  }
+  .error-countdown {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: var(--muted);
+    white-space: nowrap;
+    align-self: center;
+  }
+  .error-countdown.reset-ready {
+    color: var(--success, #22c55e);
+    font-weight: 600;
+  }
   .msg.thinking {
     background: var(--assistant-bg);
     border: 1px solid var(--assistant-border);
@@ -214,6 +256,72 @@
     color: var(--ok);
   }
   .msg.tool-err {
+    color: var(--error);
+  }
+
+  /* Exec card */
+  .msg.exec-card {
+    align-self: flex-start;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    max-width: 70%;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    white-space: normal;
+  }
+  .msg.exec-card.exec-ok {
+    border-color: var(--border);
+  }
+  .msg.exec-card.exec-err {
+    border-color: var(--error);
+  }
+  .exec-prompt {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text);
+    line-height: 1.4;
+  }
+  .exec-prompt-char {
+    color: var(--ok);
+    font-weight: 600;
+    user-select: none;
+  }
+  .exec-card.exec-err .exec-prompt-char {
+    color: var(--error);
+  }
+  .exec-status {
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .exec-output {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin: 0;
+    overflow-x: auto;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.45;
+    white-space: pre;
+  }
+  .exec-output.exec-stderr {
+    color: var(--warn);
+  }
+  .exec-exit {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--error);
+  }
+  .exec-error-detail {
+    font-size: 0.78rem;
     color: var(--error);
   }
   .msg code {

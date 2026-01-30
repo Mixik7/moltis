@@ -36,7 +36,7 @@ fn try_parse_known_error(raw: &str) -> Value {
             let resets_at = extract_resets_at(err_obj);
             return build_error(
                 "usage_limit_reached",
-                "\u{23F3}",
+                "",
                 "Usage limit reached",
                 &format!("Your {} plan limit has been reached.", plan_type),
                 resets_at,
@@ -80,7 +80,7 @@ fn try_parse_known_error(raw: &str) -> Value {
             429 => {
                 return build_error(
                     "rate_limit_exceeded",
-                    "\u{23F3}",
+                    "",
                     "Rate limited",
                     "Too many requests. Please wait a moment and try again.",
                     None,

@@ -9,7 +9,7 @@ use {
     tracing::debug,
 };
 
-use crate::model::{CompletionResponse, LlmProvider, StreamEvent, Usage};
+use crate::model::{CompletionResponse, LlmProvider, StreamEvent, ToolCall, Usage};
 
 pub struct OpenAiCodexProvider {
     model: String,
@@ -29,11 +29,15 @@ impl OpenAiCodexProvider {
     }
 
     fn get_valid_token(&self) -> anyhow::Result<String> {
-        let tokens = self.token_store.load("openai-codex").ok_or_else(|| {
-            anyhow::anyhow!(
-                "not logged in to openai-codex — run `moltis auth login --provider openai-codex`"
-            )
-        })?;
+        let tokens = self
+            .token_store
+            .load("openai-codex")
+            .or_else(load_codex_cli_tokens)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "not logged in to openai-codex — run `moltis auth login --provider openai-codex`"
+                )
+            })?;
 
         // Check expiry with 5 min buffer
         if let Some(expires_at) = tokens.expires_at {
@@ -87,27 +91,95 @@ impl OpenAiCodexProvider {
     fn convert_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
         messages
             .iter()
-            .map(|msg| {
+            .filter_map(|msg| {
                 let role = msg["role"].as_str().unwrap_or("user");
-                let content = msg["content"].as_str().unwrap_or("");
                 match role {
-                    "assistant" => serde_json::json!({
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [{"type": "output_text", "text": content}]
-                    }),
-                    _ => serde_json::json!({
-                        "role": "user",
-                        "content": [{"type": "input_text", "text": content}]
-                    }),
+                    "assistant" => {
+                        // Check if this assistant message has tool_calls
+                        if let Some(tool_calls) = msg["tool_calls"].as_array() {
+                            // Emit function_call items for each tool call
+                            let mut items: Vec<serde_json::Value> = vec![];
+                            for tc in tool_calls {
+                                items.push(serde_json::json!({
+                                    "type": "function_call",
+                                    "call_id": tc["id"],
+                                    "name": tc["function"]["name"],
+                                    "arguments": tc["function"]["arguments"],
+                                }));
+                            }
+                            // Also include text content if present
+                            if let Some(text) = msg["content"].as_str() {
+                                if !text.is_empty() {
+                                    items.insert(
+                                        0,
+                                        serde_json::json!({
+                                            "type": "message",
+                                            "role": "assistant",
+                                            "content": [{"type": "output_text", "text": text}]
+                                        }),
+                                    );
+                                }
+                            }
+                            Some(items)
+                        } else {
+                            let content = msg["content"].as_str().unwrap_or("");
+                            Some(vec![serde_json::json!({
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [{"type": "output_text", "text": content}]
+                            })])
+                        }
+                    },
+                    "tool" => {
+                        // Convert tool result to function_call_output
+                        Some(vec![serde_json::json!({
+                            "type": "function_call_output",
+                            "call_id": msg["tool_call_id"],
+                            "output": msg["content"].as_str().unwrap_or(""),
+                        })])
+                    },
+                    _ => {
+                        let content = msg["content"].as_str().unwrap_or("");
+                        Some(vec![serde_json::json!({
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": content}]
+                        })])
+                    },
                 }
             })
+            .flatten()
             .collect()
     }
 }
 
+/// Parse tokens from Codex CLI auth.json content.
+fn parse_codex_cli_tokens(data: &str) -> Option<moltis_oauth::OAuthTokens> {
+    let json: serde_json::Value = serde_json::from_str(data).ok()?;
+    let tokens = json.get("tokens")?;
+    let access_token = tokens.get("access_token")?.as_str()?.to_string();
+    let refresh_token = tokens
+        .get("refresh_token")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Some(moltis_oauth::OAuthTokens {
+        access_token,
+        refresh_token,
+        expires_at: None,
+    })
+}
+
+/// Try to load tokens from the Codex CLI file at `~/.codex/auth.json`.
+fn load_codex_cli_tokens() -> Option<moltis_oauth::OAuthTokens> {
+    let home = std::env::var("HOME").ok()?;
+    let path = std::path::PathBuf::from(home)
+        .join(".codex")
+        .join("auth.json");
+    let data = std::fs::read_to_string(path).ok()?;
+    parse_codex_cli_tokens(&data)
+}
+
 pub fn has_stored_tokens() -> bool {
-    TokenStore::new().load("openai-codex").is_some()
+    TokenStore::new().load("openai-codex").is_some() || load_codex_cli_tokens().is_some()
 }
 
 #[async_trait]
@@ -120,26 +192,61 @@ impl LlmProvider for OpenAiCodexProvider {
         &self.model
     }
 
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
     async fn complete(
         &self,
         messages: &[serde_json::Value],
-        _tools: &[serde_json::Value],
+        tools: &[serde_json::Value],
     ) -> anyhow::Result<CompletionResponse> {
         let token = self.get_valid_token()?;
         let account_id = Self::extract_account_id(&token)?;
-        let input = Self::convert_messages(messages);
 
-        let body = serde_json::json!({
+        // Extract system message as instructions; pass the rest as input
+        let instructions = messages
+            .iter()
+            .find(|m| m["role"].as_str() == Some("system"))
+            .and_then(|m| m["content"].as_str())
+            .unwrap_or("You are a helpful assistant.");
+        let non_system: Vec<serde_json::Value> = messages
+            .iter()
+            .filter(|m| m["role"].as_str() != Some("system"))
+            .cloned()
+            .collect();
+        let input = Self::convert_messages(&non_system);
+
+        // The Codex API requires stream=true, so we stream and collect.
+        let mut body = serde_json::json!({
             "model": self.model,
             "store": false,
-            "stream": false,
+            "stream": true,
             "input": input,
+            "instructions": instructions,
             "text": {"verbosity": "medium"},
             "include": ["reasoning.encrypted_content"],
-            "tool_choice": "auto",
         });
 
-        let resp = self
+        if !tools.is_empty() {
+            let api_tools: Vec<serde_json::Value> = tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "name": t["name"],
+                        "description": t["description"],
+                        "parameters": t["parameters"],
+                    })
+                })
+                .collect();
+            body["tools"] = serde_json::Value::Array(api_tools);
+            body["tool_choice"] = serde_json::json!("auto");
+        }
+
+        debug!(body = %serde_json::to_string(&body).unwrap_or_default(), "openai-codex request body");
+
+        let http_resp = self
             .client
             .post(format!("{}/codex/responses", self.base_url))
             .header("Authorization", format!("Bearer {token}"))
@@ -149,33 +256,118 @@ impl LlmProvider for OpenAiCodexProvider {
             .header("content-type", "application/json")
             .json(&body)
             .send()
-            .await?
-            .error_for_status()?
-            .json::<serde_json::Value>()
             .await?;
 
-        let text = resp["output"].as_array().and_then(|outputs| {
-            outputs.iter().find_map(|o| {
-                if o["type"] == "message" {
-                    o["content"]
-                        .as_array()
-                        .and_then(|c| c.iter().find_map(|item| item["text"].as_str()))
-                        .map(|s| s.to_string())
-                } else {
-                    None
-                }
-            })
-        });
+        let status = http_resp.status();
+        if !status.is_success() {
+            let body_text = http_resp.text().await.unwrap_or_default();
+            tracing::warn!(status = %status, body = %body_text, "openai-codex API error");
+            anyhow::bail!("openai-codex API error HTTP {status}: {body_text}");
+        }
 
-        let usage = Usage {
-            input_tokens: resp["usage"]["input_tokens"].as_u64().unwrap_or(0) as u32,
-            output_tokens: resp["usage"]["output_tokens"].as_u64().unwrap_or(0) as u32,
+        // Collect the SSE stream into a final response
+        let mut text_buf = String::new();
+        let mut tool_calls: Vec<ToolCall> = vec![];
+        // Track in-progress function calls by index
+        let mut fn_call_ids: Vec<String> = vec![];
+        let mut fn_call_names: Vec<String> = vec![];
+        let mut fn_call_args: Vec<String> = vec![];
+        let mut input_tokens: u32 = 0;
+        let mut output_tokens: u32 = 0;
+
+        let mut byte_stream = http_resp.bytes_stream();
+        let mut buf = String::new();
+
+        while let Some(chunk) = byte_stream.next().await {
+            let chunk = chunk?;
+            buf.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(pos) = buf.find('\n') {
+                let line = buf[..pos].trim().to_string();
+                buf = buf[pos + 1..].to_string();
+
+                if line.is_empty() {
+                    continue;
+                }
+                let Some(data) = line.strip_prefix("data: ") else {
+                    continue;
+                };
+                if data == "[DONE]" {
+                    break;
+                }
+                let Ok(evt) = serde_json::from_str::<serde_json::Value>(data) else {
+                    continue;
+                };
+
+                match evt["type"].as_str().unwrap_or("") {
+                    "response.output_text.delta" => {
+                        if let Some(delta) = evt["delta"].as_str() {
+                            text_buf.push_str(delta);
+                        }
+                    },
+                    "response.output_item.added" => {
+                        if evt["item"]["type"].as_str() == Some("function_call") {
+                            fn_call_ids
+                                .push(evt["item"]["call_id"].as_str().unwrap_or("").to_string());
+                            fn_call_names
+                                .push(evt["item"]["name"].as_str().unwrap_or("").to_string());
+                            fn_call_args.push(String::new());
+                        }
+                    },
+                    "response.function_call_arguments.delta" => {
+                        if let Some(delta) = evt["delta"].as_str() {
+                            if let Some(last) = fn_call_args.last_mut() {
+                                last.push_str(delta);
+                            }
+                        }
+                    },
+                    "response.function_call_arguments.done" => {
+                        // function call complete — will be collected at the end
+                    },
+                    "response.completed" => {
+                        if let Some(u) = evt["response"]["usage"].as_object() {
+                            input_tokens =
+                                u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                            output_tokens =
+                                u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        }
+                    },
+                    "error" | "response.failed" => {
+                        let msg = evt["error"]["message"]
+                            .as_str()
+                            .or_else(|| evt["message"].as_str())
+                            .unwrap_or("unknown error");
+                        anyhow::bail!("openai-codex stream error: {msg}");
+                    },
+                    _ => {},
+                }
+            }
+        }
+
+        // Build tool calls from collected parts
+        for i in 0..fn_call_ids.len() {
+            let args_str = &fn_call_args[i];
+            let arguments = serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
+            tool_calls.push(ToolCall {
+                id: fn_call_ids[i].clone(),
+                name: fn_call_names[i].clone(),
+                arguments,
+            });
+        }
+
+        let text = if text_buf.is_empty() {
+            None
+        } else {
+            Some(text_buf)
         };
 
         Ok(CompletionResponse {
             text,
-            tool_calls: vec![],
-            usage,
+            tool_calls,
+            usage: Usage {
+                input_tokens,
+                output_tokens,
+            },
         })
     }
 
@@ -201,16 +393,27 @@ impl LlmProvider for OpenAiCodexProvider {
                 }
             };
 
-            let input = Self::convert_messages(&messages);
+            let instructions = messages
+                .iter()
+                .find(|m| m["role"].as_str() == Some("system"))
+                .and_then(|m| m["content"].as_str())
+                .unwrap_or("You are a helpful assistant.")
+                .to_string();
+            let non_system: Vec<serde_json::Value> = messages
+                .iter()
+                .filter(|m| m["role"].as_str() != Some("system"))
+                .cloned()
+                .collect();
+            let input = Self::convert_messages(&non_system);
 
             let body = serde_json::json!({
                 "model": self.model,
                 "store": false,
                 "stream": true,
                 "input": input,
+                "instructions": instructions,
                 "text": {"verbosity": "medium"},
                 "include": ["reasoning.encrypted_content"],
-                "tool_choice": "auto",
             });
 
             let resp = match self
@@ -309,5 +512,97 @@ impl LlmProvider for OpenAiCodexProvider {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_codex_cli_tokens_full() {
+        let json = r#"{
+            "last_refresh": "2026-01-27T04:54:45Z",
+            "OPENAI_API_KEY": null,
+            "tokens": {
+                "access_token": "test_access_token",
+                "account_id": "some-account-id",
+                "id_token": "some-id-token",
+                "refresh_token": "test_refresh_token"
+            }
+        }"#;
+        let tokens = parse_codex_cli_tokens(json).unwrap();
+        assert_eq!(tokens.access_token, "test_access_token");
+        assert_eq!(tokens.refresh_token.as_deref(), Some("test_refresh_token"));
+        assert_eq!(tokens.expires_at, None);
+    }
+
+    #[test]
+    fn parse_codex_cli_tokens_no_refresh() {
+        let json = r#"{
+            "tokens": {
+                "access_token": "tok123"
+            }
+        }"#;
+        let tokens = parse_codex_cli_tokens(json).unwrap();
+        assert_eq!(tokens.access_token, "tok123");
+        assert!(tokens.refresh_token.is_none());
+    }
+
+    #[test]
+    fn parse_codex_cli_tokens_missing_tokens_field() {
+        let json = r#"{"OPENAI_API_KEY": "sk-test"}"#;
+        assert!(parse_codex_cli_tokens(json).is_none());
+    }
+
+    #[test]
+    fn parse_codex_cli_tokens_invalid_json() {
+        assert!(parse_codex_cli_tokens("not json").is_none());
+    }
+
+    #[test]
+    fn parse_codex_cli_tokens_null_access_token() {
+        let json = r#"{"tokens": {"access_token": null}}"#;
+        assert!(parse_codex_cli_tokens(json).is_none());
+    }
+
+    #[test]
+    fn convert_messages_user_and_assistant() {
+        let messages = vec![
+            serde_json::json!({"role": "user", "content": "hello"}),
+            serde_json::json!({"role": "assistant", "content": "hi there"}),
+        ];
+        let converted = OpenAiCodexProvider::convert_messages(&messages);
+        assert_eq!(converted.len(), 2);
+        assert_eq!(converted[0]["content"][0]["type"], "input_text");
+        assert_eq!(converted[1]["type"], "message");
+        assert_eq!(converted[1]["content"][0]["text"], "hi there");
+    }
+
+    #[test]
+    fn convert_messages_tool_call_and_result() {
+        let messages = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "get_time", "arguments": "{}"}
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "12:00"
+            }),
+        ];
+        let converted = OpenAiCodexProvider::convert_messages(&messages);
+        assert_eq!(converted.len(), 2);
+        assert_eq!(converted[0]["type"], "function_call");
+        assert_eq!(converted[0]["call_id"], "call_1");
+        assert_eq!(converted[0]["name"], "get_time");
+        assert_eq!(converted[1]["type"], "function_call_output");
+        assert_eq!(converted[1]["call_id"], "call_1");
+        assert_eq!(converted[1]["output"], "12:00");
     }
 }

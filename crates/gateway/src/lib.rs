@@ -14,6 +14,7 @@ pub mod approval;
 pub mod auth;
 pub mod broadcast;
 pub mod chat;
+pub mod chat_error;
 pub mod methods;
 pub mod nodes;
 pub mod pairing;

@@ -97,6 +97,10 @@ pub const SAFE_BINS: &[&str] = &[
     "which",
     "type",
     "command",
+    // Package manager query commands (read-only, user-space).
+    "brew",
+    "dpkg",
+    "rpm",
 ];
 
 /// Extract the first command/binary from a shell command string.

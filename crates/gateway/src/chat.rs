@@ -18,6 +18,7 @@ use moltis_agents::{
 
 use crate::{
     broadcast::{BroadcastOpts, broadcast},
+    chat_error::parse_chat_error,
     services::{ChatService, ModelService, ServiceResult},
     state::GatewayState,
 };
@@ -144,13 +145,22 @@ impl ChatService for LiveChatService {
             "chat.send"
         );
 
+        let provider_name = provider.name().to_string();
         let handle = tokio::spawn(async move {
             if stream_only {
                 // Streaming mode (no tools) — plain LLM text generation.
-                run_streaming(&state, &run_id_clone, provider, &text).await;
+                run_streaming(&state, &run_id_clone, provider, &text, &provider_name).await;
             } else {
                 // Agent loop mode: LLM + tool call execution loop.
-                run_with_tools(&state, &run_id_clone, provider, &tool_registry, &text).await;
+                run_with_tools(
+                    &state,
+                    &run_id_clone,
+                    provider,
+                    &tool_registry,
+                    &text,
+                    &provider_name,
+                )
+                .await;
             }
 
             active_runs.write().await.remove(&run_id_clone);
@@ -193,6 +203,7 @@ async fn run_with_tools(
     provider: Arc<dyn moltis_agents::model::LlmProvider>,
     tool_registry: &Arc<ToolRegistry>,
     text: &str,
+    provider_name: &str,
 ) {
     let native_tools = provider.supports_tools();
     let system_prompt = build_system_prompt(tool_registry, native_tools);
@@ -213,19 +224,45 @@ async fn run_with_tools(
                     "runId": run_id,
                     "state": "thinking_done",
                 }),
-                RunnerEvent::ToolCallStart { id, name } => serde_json::json!({
+                RunnerEvent::ToolCallStart { id, name, arguments } => serde_json::json!({
                     "runId": run_id,
                     "state": "tool_call_start",
                     "toolCallId": id,
                     "toolName": name,
+                    "arguments": arguments,
                 }),
-                RunnerEvent::ToolCallEnd { id, name, success } => serde_json::json!({
-                    "runId": run_id,
-                    "state": "tool_call_end",
-                    "toolCallId": id,
-                    "toolName": name,
-                    "success": success,
-                }),
+                RunnerEvent::ToolCallEnd { id, name, success, error, result } => {
+                    let mut payload = serde_json::json!({
+                        "runId": run_id,
+                        "state": "tool_call_end",
+                        "toolCallId": id,
+                        "toolName": name,
+                        "success": success,
+                    });
+                    if let Some(err) = error {
+                        payload["error"] = serde_json::json!(
+                            parse_chat_error(err, None)
+                        );
+                    }
+                    if let Some(res) = result {
+                        // Cap output sent to the UI to avoid huge WS frames.
+                        let mut capped = res.clone();
+                        for field in &["stdout", "stderr"] {
+                            if let Some(s) = capped.get(*field).and_then(|v| v.as_str()) {
+                                if s.len() > 10_000 {
+                                    let truncated = format!(
+                                        "{}\n\n... [truncated — {} bytes total]",
+                                        &s[..10_000],
+                                        s.len()
+                                    );
+                                    capped[*field] = serde_json::Value::String(truncated);
+                                }
+                            }
+                        }
+                        payload["result"] = capped;
+                    }
+                    payload
+                },
                 RunnerEvent::TextDelta(text) => serde_json::json!({
                     "runId": run_id,
                     "state": "delta",
@@ -273,13 +310,14 @@ async fn run_with_tools(
         },
         Err(e) => {
             warn!(run_id, error = %e, "agent run error");
+            let error_obj = parse_chat_error(&e.to_string(), Some(provider_name));
             broadcast(
                 state,
                 "chat",
                 serde_json::json!({
                     "runId": run_id,
                     "state": "error",
-                    "message": e.to_string(),
+                    "error": error_obj,
                 }),
                 BroadcastOpts::default(),
             )
@@ -295,6 +333,7 @@ async fn run_streaming(
     run_id: &str,
     provider: Arc<dyn moltis_agents::model::LlmProvider>,
     text: &str,
+    provider_name: &str,
 ) {
     let messages = vec![serde_json::json!({
         "role": "user",
@@ -342,13 +381,14 @@ async fn run_streaming(
             },
             StreamEvent::Error(msg) => {
                 warn!(run_id, error = %msg, "chat stream error");
+                let error_obj = parse_chat_error(&msg, Some(provider_name));
                 broadcast(
                     state,
                     "chat",
                     serde_json::json!({
                         "runId": run_id,
                         "state": "error",
-                        "message": msg,
+                        "error": error_obj,
                     }),
                     BroadcastOpts::default(),
                 )

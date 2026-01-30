@@ -190,8 +190,10 @@ impl AgentTool for ExecTool {
         let working_dir = params
             .get("working_dir")
             .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
             .map(PathBuf::from)
-            .or_else(|| self.working_dir.clone());
+            .or_else(|| self.working_dir.clone())
+            .or_else(|| std::env::current_dir().ok());
 
         info!(command, timeout_secs, ?working_dir, "exec tool invoked");
 
@@ -312,6 +314,19 @@ mod tests {
             .unwrap();
         assert_eq!(result["stdout"].as_str().unwrap().trim(), "hello");
         assert_eq!(result["exit_code"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_exec_tool_empty_working_dir() {
+        let tool = ExecTool::default();
+        let result = tool
+            .execute(serde_json::json!({ "command": "pwd", "working_dir": "" }))
+            .await
+            .unwrap();
+        // Should succeed (not fail with "No such file or directory") and
+        // use the current directory.
+        assert_eq!(result["exit_code"], 0);
+        assert!(!result["stdout"].as_str().unwrap().trim().is_empty());
     }
 
     #[tokio::test]

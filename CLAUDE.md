@@ -14,6 +14,8 @@ it more Rustacean.
 
 Always use traits if possible, to allow other implementations.
 
+Always prefer streaming over non-streaming API calls when possible. Streaming provides a better, friendlier user experience by showing responses as they arrive.
+
 All code you write must have test with a high coverage.
 
 ## Build and Development Commands

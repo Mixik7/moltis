@@ -203,11 +203,14 @@ pub async fn handle_connection(
         "ws: handshake complete"
     );
 
-    // Register the client.
+    // Register the client with server-resolved scopes so broadcast guards work.
     let now = std::time::Instant::now();
+    let mut resolved_params = params.clone();
+    resolved_params.scopes = Some(scopes.clone());
+    resolved_params.role = Some(role.clone());
     let client = ConnectedClient {
         conn_id: conn_id.clone(),
-        connect_params: params.clone(),
+        connect_params: resolved_params,
         sender: client_tx.clone(),
         connected_at: now,
         last_activity: now,

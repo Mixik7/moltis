@@ -24,6 +24,7 @@
   var streamText = "";
   var pending = {};
   var models = [];
+  var lastToolOutput = "";
 
   // ── Theme ────────────────────────────────────────────────────────
 
@@ -114,6 +115,162 @@
     if (el) el.remove();
   }
 
+  function addErrorMsg(message) {
+    var parsed = parseErrorMessage(message);
+    var el = document.createElement("div");
+    el.className = "msg error-card";
+
+    var icon = document.createElement("div");
+    icon.className = "error-icon";
+    icon.textContent = parsed.icon;
+    el.appendChild(icon);
+
+    var body = document.createElement("div");
+    body.className = "error-body";
+
+    var title = document.createElement("div");
+    title.className = "error-title";
+    title.textContent = parsed.title;
+    body.appendChild(title);
+
+    if (parsed.detail) {
+      var detail = document.createElement("div");
+      detail.className = "error-detail";
+      detail.textContent = parsed.detail;
+      body.appendChild(detail);
+    }
+
+    if (parsed.resetsAt) {
+      var countdown = document.createElement("div");
+      countdown.className = "error-countdown";
+      el.appendChild(body);
+      el.appendChild(countdown);
+      updateCountdown(countdown, parsed.resetsAt);
+      var timer = setInterval(function () {
+        var done = updateCountdown(countdown, parsed.resetsAt);
+        if (done) clearInterval(timer);
+      }, 1000);
+    } else {
+      el.appendChild(body);
+    }
+
+    msgBox.appendChild(el);
+    msgBox.scrollTop = msgBox.scrollHeight;
+  }
+
+  function addErrorCard(err) {
+    var el = document.createElement("div");
+    el.className = "msg error-card";
+
+    var icon = document.createElement("div");
+    icon.className = "error-icon";
+    icon.textContent = err.icon || "\u26A0\uFE0F";
+    el.appendChild(icon);
+
+    var body = document.createElement("div");
+    body.className = "error-body";
+
+    var title = document.createElement("div");
+    title.className = "error-title";
+    title.textContent = err.title;
+    body.appendChild(title);
+
+    if (err.detail) {
+      var detail = document.createElement("div");
+      detail.className = "error-detail";
+      detail.textContent = err.detail;
+      body.appendChild(detail);
+    }
+
+    if (err.provider) {
+      var prov = document.createElement("div");
+      prov.className = "error-detail";
+      prov.textContent = "Provider: " + err.provider;
+      prov.style.marginTop = "4px";
+      prov.style.opacity = "0.6";
+      body.appendChild(prov);
+    }
+
+    if (err.resetsAt) {
+      var countdown = document.createElement("div");
+      countdown.className = "error-countdown";
+      el.appendChild(body);
+      el.appendChild(countdown);
+      updateCountdown(countdown, err.resetsAt);
+      var timer = setInterval(function () {
+        var done = updateCountdown(countdown, err.resetsAt);
+        if (done) clearInterval(timer);
+      }, 1000);
+    } else {
+      el.appendChild(body);
+    }
+
+    msgBox.appendChild(el);
+    msgBox.scrollTop = msgBox.scrollHeight;
+  }
+
+  function parseErrorMessage(message) {
+    // Try to extract JSON from the error message
+    var jsonMatch = message.match(/\{[\s\S]*\}$/);
+    if (jsonMatch) {
+      try {
+        var err = JSON.parse(jsonMatch[0]);
+        var errObj = err.error || err;
+        if (errObj.type === "usage_limit_reached" || (errObj.message && errObj.message.indexOf("usage limit") !== -1)) {
+          return {
+            icon: "",
+            title: "Usage limit reached",
+            detail: "Your " + (errObj.plan_type || "current") + " plan limit has been reached.",
+            resetsAt: errObj.resets_at ? errObj.resets_at * 1000 : null
+          };
+        }
+        if (errObj.type === "rate_limit_exceeded" || (errObj.message && errObj.message.indexOf("rate limit") !== -1)) {
+          return {
+            icon: "\u26A0\uFE0F",
+            title: "Rate limited",
+            detail: errObj.message || "Too many requests. Please wait a moment.",
+            resetsAt: errObj.resets_at ? errObj.resets_at * 1000 : null
+          };
+        }
+        if (errObj.message) {
+          return { icon: "\u26A0\uFE0F", title: "Error", detail: errObj.message, resetsAt: null };
+        }
+      } catch (e) { /* fall through */ }
+    }
+
+    // Check for HTTP status codes in the raw message
+    var statusMatch = message.match(/HTTP (\d{3})/);
+    var code = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+    if (code === 401 || code === 403) {
+      return { icon: "\uD83D\uDD12", title: "Authentication error", detail: "Your session may have expired. Try logging in again.", resetsAt: null };
+    }
+    if (code === 429) {
+      return { icon: "", title: "Rate limited", detail: "Too many requests. Please wait a moment and try again.", resetsAt: null };
+    }
+    if (code >= 500) {
+      return { icon: "\uD83D\uDEA8", title: "Server error", detail: "The upstream provider returned an error. Please try again later.", resetsAt: null };
+    }
+
+    return { icon: "\u26A0\uFE0F", title: "Error", detail: message, resetsAt: null };
+  }
+
+  function updateCountdown(el, resetsAtMs) {
+    var now = Date.now();
+    var diff = resetsAtMs - now;
+    if (diff <= 0) {
+      el.textContent = "Limit should be reset now — try again!";
+      el.className = "error-countdown reset-ready";
+      return true;
+    }
+    var hours = Math.floor(diff / 3600000);
+    var mins = Math.floor((diff % 3600000) / 60000);
+    var parts = [];
+    if (hours > 0) parts.push(hours + "h");
+    parts.push(mins + "m");
+    el.textContent = "Resets in " + parts.join(" ");
+    return false;
+  }
+
   // ── WebSocket ────────────────────────────────────────────────────
 
   function connect() {
@@ -177,19 +334,66 @@
             removeThinking();
           } else if (p.state === "tool_call_start") {
             removeThinking();
-            var toolStartEl = document.createElement("div");
-            toolStartEl.className = "msg system tool-event";
-            // Safe: toolName comes from server-registered tool names, not user input,
-            // and is set via textContent which never interprets HTML.
-            toolStartEl.textContent = "\u2699 Running: " + (p.toolName || "tool") + "\u2026";
-            toolStartEl.id = "tool-" + p.toolCallId;
-            msgBox.appendChild(toolStartEl);
+            var card = document.createElement("div");
+            card.className = "msg exec-card running";
+            card.id = "tool-" + p.toolCallId;
+            var prompt = document.createElement("div");
+            prompt.className = "exec-prompt";
+            // For exec tool, show the shell command; otherwise show tool name
+            var cmd = (p.toolName === "exec" && p.arguments && p.arguments.command)
+              ? p.arguments.command
+              : (p.toolName || "tool");
+            var promptChar = document.createElement("span");
+            promptChar.className = "exec-prompt-char";
+            promptChar.textContent = "$";
+            prompt.appendChild(promptChar);
+            var cmdSpan = document.createElement("span");
+            cmdSpan.textContent = " " + cmd;
+            prompt.appendChild(cmdSpan);
+            card.appendChild(prompt);
+            // Spinner placeholder
+            var spin = document.createElement("div");
+            spin.className = "exec-status";
+            spin.textContent = "running\u2026";
+            card.appendChild(spin);
+            msgBox.appendChild(card);
             msgBox.scrollTop = msgBox.scrollHeight;
           } else if (p.state === "tool_call_end") {
-            var toolDoneEl = document.getElementById("tool-" + p.toolCallId);
-            if (toolDoneEl) {
-              toolDoneEl.textContent = (p.success ? "\u2713" : "\u2717") + " " + (p.toolName || "tool");
-              toolDoneEl.className = "msg system tool-event " + (p.success ? "tool-ok" : "tool-err");
+            var card = document.getElementById("tool-" + p.toolCallId);
+            if (card) {
+              card.className = "msg exec-card " + (p.success ? "exec-ok" : "exec-err");
+              // Remove the spinner
+              var spin = card.querySelector(".exec-status");
+              if (spin) spin.remove();
+              if (p.success && p.result) {
+                // Show stdout output; also record it to suppress LLM echo
+                var out = (p.result.stdout || "").replace(/\n+$/, "");
+                lastToolOutput = out;
+                if (out) {
+                  var outEl = document.createElement("pre");
+                  outEl.className = "exec-output";
+                  outEl.textContent = out;
+                  card.appendChild(outEl);
+                }
+                var err = (p.result.stderr || "").replace(/\n+$/, "");
+                if (err) {
+                  var errEl = document.createElement("pre");
+                  errEl.className = "exec-output exec-stderr";
+                  errEl.textContent = err;
+                  card.appendChild(errEl);
+                }
+                if (p.result.exit_code !== undefined && p.result.exit_code !== 0) {
+                  var code = document.createElement("div");
+                  code.className = "exec-exit";
+                  code.textContent = "exit " + p.result.exit_code;
+                  card.appendChild(code);
+                }
+              } else if (!p.success && p.error && p.error.detail) {
+                var errMsg = document.createElement("div");
+                errMsg.className = "exec-error-detail";
+                errMsg.textContent = p.error.detail;
+                card.appendChild(errMsg);
+              }
             }
           } else if (p.state === "delta" && p.text) {
             removeThinking();
@@ -206,17 +410,31 @@
             msgBox.scrollTop = msgBox.scrollHeight;
           } else if (p.state === "final") {
             removeThinking();
-            if (p.text && streamEl) {
-              // Safe: renderMarkdown escapes via esc() before formatting
-              streamEl.innerHTML = renderMarkdown(p.text);
-            } else if (p.text && !streamEl) {
-              addMsg("assistant", renderMarkdown(p.text), true);
+            // Suppress the LLM response when it just echoes tool output
+            // already shown in the exec card.
+            var isEcho = lastToolOutput && p.text
+              && p.text.replace(/[`\s]/g, "").indexOf(lastToolOutput.replace(/\s/g, "").substring(0, 80)) !== -1;
+            if (!isEcho) {
+              if (p.text && streamEl) {
+                // Safe: renderMarkdown escapes via esc() before formatting
+                streamEl.innerHTML = renderMarkdown(p.text);
+              } else if (p.text && !streamEl) {
+                addMsg("assistant", renderMarkdown(p.text), true);
+              }
+            } else if (streamEl) {
+              streamEl.remove();
             }
             streamEl = null;
             streamText = "";
+            lastToolOutput = "";
           } else if (p.state === "error") {
             removeThinking();
-            addMsg("error", "Chat error: " + (p.message || "unknown"));
+            if (p.error && p.error.title) {
+              addErrorCard(p.error);
+            } else {
+              // Backward compat: old payloads with just p.message
+              addErrorMsg(p.message || "unknown");
+            }
             streamEl = null;
             streamText = "";
           }

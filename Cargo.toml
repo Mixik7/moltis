@@ -69,7 +69,7 @@ open         = "5.3"
 sha2         = "0.10"
 
 # Workspace crates
-moltis-agents     = { path = "crates/agents" }
+moltis-agents     = { path = "crates/agents", features = ["provider-openai-codex"] }
 moltis-oauth      = { path = "crates/oauth" }
 moltis-auto-reply = { path = "crates/auto-reply" }
 moltis-browser    = { path = "crates/browser" }

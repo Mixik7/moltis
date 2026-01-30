@@ -34,11 +34,14 @@ pub enum RunnerEvent {
     ToolCallStart {
         id: String,
         name: String,
+        arguments: serde_json::Value,
     },
     ToolCallEnd {
         id: String,
         name: String,
         success: bool,
+        error: Option<String>,
+        result: Option<serde_json::Value>,
     },
     TextDelta(String),
     Iteration(usize),
@@ -156,15 +159,21 @@ pub async fn run_agent_loop(
         );
         trace!(iteration = iterations, messages = %serde_json::to_string(&messages).unwrap_or_default(), "LLM request messages");
 
-        if let Some(cb) = on_event {
-            cb(RunnerEvent::Thinking);
+        // Only show thinking indicator on the first iteration — after tool
+        // calls the LLM is just processing results, not worth a spinner.
+        if iterations == 1 {
+            if let Some(cb) = on_event {
+                cb(RunnerEvent::Thinking);
+            }
         }
 
         let mut response: CompletionResponse =
             provider.complete(&messages, schemas_for_api).await?;
 
-        if let Some(cb) = on_event {
-            cb(RunnerEvent::ThinkingDone);
+        if iterations == 1 {
+            if let Some(cb) = on_event {
+                cb(RunnerEvent::ThinkingDone);
+            }
         }
 
         info!(
@@ -251,6 +260,7 @@ pub async fn run_agent_loop(
                 cb(RunnerEvent::ToolCallStart {
                     id: tc.id.clone(),
                     name: tc.name.clone(),
+                    arguments: tc.arguments.clone(),
                 });
             }
 
@@ -266,32 +276,40 @@ pub async fn run_agent_loop(
                                 id: tc.id.clone(),
                                 name: tc.name.clone(),
                                 success: true,
+                                error: None,
+                                result: Some(val.clone()),
                             });
                         }
                         serde_json::json!({ "result": val })
                     },
                     Err(e) => {
-                        warn!(tool = %tc.name, id = %tc.id, error = %e, "tool execution failed");
+                        let err_str = e.to_string();
+                        warn!(tool = %tc.name, id = %tc.id, error = %err_str, "tool execution failed");
                         if let Some(cb) = on_event {
                             cb(RunnerEvent::ToolCallEnd {
                                 id: tc.id.clone(),
                                 name: tc.name.clone(),
                                 success: false,
+                                error: Some(err_str.clone()),
+                                result: None,
                             });
                         }
-                        serde_json::json!({ "error": e.to_string() })
+                        serde_json::json!({ "error": err_str })
                     },
                 }
             } else {
+                let err_str = format!("unknown tool: {}", tc.name);
                 warn!(tool = %tc.name, id = %tc.id, "unknown tool requested by LLM");
                 if let Some(cb) = on_event {
                     cb(RunnerEvent::ToolCallEnd {
                         id: tc.id.clone(),
                         name: tc.name.clone(),
                         success: false,
+                        error: Some(err_str.clone()),
+                        result: None,
                     });
                 }
-                serde_json::json!({ "error": format!("unknown tool: {}", tc.name) })
+                serde_json::json!({ "error": err_str })
             };
 
             let tool_result_str = result.to_string();
