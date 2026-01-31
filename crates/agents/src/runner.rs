@@ -44,6 +44,8 @@ pub enum RunnerEvent {
         error: Option<String>,
         result: Option<serde_json::Value>,
     },
+    /// LLM returned reasoning/status text alongside tool calls.
+    ThinkingText(String),
     TextDelta(String),
     Iteration(usize),
 }
@@ -193,21 +195,15 @@ pub async fn run_agent_loop_with_context(
         );
         trace!(iteration = iterations, messages = %serde_json::to_string(&messages).unwrap_or_default(), "LLM request messages");
 
-        // Only show thinking indicator on the first iteration — after tool
-        // calls the LLM is just processing results, not worth a spinner.
-        if iterations == 1 {
-            if let Some(cb) = on_event {
-                cb(RunnerEvent::Thinking);
-            }
+        if let Some(cb) = on_event {
+            cb(RunnerEvent::Thinking);
         }
 
         let mut response: CompletionResponse =
             provider.complete(&messages, schemas_for_api).await?;
 
-        if iterations == 1 {
-            if let Some(cb) = on_event {
-                cb(RunnerEvent::ThinkingDone);
-            }
+        if let Some(cb) = on_event {
+            cb(RunnerEvent::ThinkingDone);
         }
 
         total_input_tokens = total_input_tokens.saturating_add(response.usage.input_tokens);
@@ -290,6 +286,9 @@ pub async fn run_agent_loop_with_context(
         });
         if let Some(ref text) = response.text {
             assistant_msg["content"] = serde_json::Value::String(text.clone());
+            if let Some(cb) = on_event {
+                cb(RunnerEvent::ThinkingText(text.clone()));
+            }
         }
         messages.push(assistant_msg);
 

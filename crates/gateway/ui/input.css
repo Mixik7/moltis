@@ -248,6 +248,23 @@
   .thinking-dots span:nth-child(3) {
     animation-delay: 0.3s;
   }
+  .thinking-text {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-style: italic;
+    animation: thinking-pulse 2s ease-in-out infinite;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  @keyframes thinking-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
   .msg.tool-event {
     font-family: var(--font-mono);
     font-size: 0.78rem;
@@ -800,6 +817,19 @@
     border-radius: 50%;
     background: var(--accent);
     vertical-align: middle;
+  }
+
+  /* Token usage bar (bottom of chat, above input) */
+  .token-bar {
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-align: center;
+    padding: 2px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .token-bar:empty {
+    display: none;
   }
 
   /* Model footer (shown below assistant messages) */

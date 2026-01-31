@@ -11,6 +11,16 @@ pub fn build_system_prompt(
     native_tools: bool,
     project_context: Option<&str>,
 ) -> String {
+    build_system_prompt_with_session(tools, native_tools, project_context, None)
+}
+
+/// Build the system prompt, optionally including session context stats.
+pub fn build_system_prompt_with_session(
+    tools: &ToolRegistry,
+    native_tools: bool,
+    project_context: Option<&str>,
+    session_context: Option<&str>,
+) -> String {
     let tool_schemas = tools.list_schemas();
 
     let mut prompt = String::from(
@@ -22,6 +32,14 @@ pub fn build_system_prompt(
     if let Some(ctx) = project_context {
         prompt.push_str(ctx);
         prompt.push('\n');
+    }
+
+    // Inject session context stats so the LLM can answer questions about
+    // the current session size and token usage.
+    if let Some(ctx) = session_context {
+        prompt.push_str("## Current Session\n\n");
+        prompt.push_str(ctx);
+        prompt.push_str("\n\n");
     }
 
     if !tool_schemas.is_empty() {
