@@ -1020,6 +1020,8 @@ pub struct GatewayServices {
     channel_outbound: Option<Arc<dyn ChannelOutbound>>,
     /// Optional session metadata for cross-service access (e.g. channel binding).
     pub session_metadata: Option<Arc<moltis_sessions::metadata::SqliteSessionMetadata>>,
+    /// Optional session store for message-index lookups (e.g. deduplication).
+    pub session_store: Option<Arc<moltis_sessions::store::SessionStore>>,
 }
 
 impl GatewayServices {
@@ -1076,6 +1078,7 @@ impl GatewayServices {
             project: Arc::new(NoopProjectService),
             channel_outbound: None,
             session_metadata: None,
+            session_store: None,
         }
     }
 
@@ -1089,6 +1092,14 @@ impl GatewayServices {
         meta: Arc<moltis_sessions::metadata::SqliteSessionMetadata>,
     ) -> Self {
         self.session_metadata = Some(meta);
+        self
+    }
+
+    pub fn with_session_store(
+        mut self,
+        store: Arc<moltis_sessions::store::SessionStore>,
+    ) -> Self {
+        self.session_store = Some(store);
         self
     }
 }

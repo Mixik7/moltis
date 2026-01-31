@@ -44,9 +44,7 @@ registerPage("/providers", function initProviders(container) {
       }
 
       providers.forEach(function (p) {
-        var card = createEl("div", {
-          style: "display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;"
-        });
+        var card = createEl("div", { className: "provider-card" });
 
         var left = createEl("div", { style: "display:flex;align-items:center;gap:8px;" });
         left.appendChild(createEl("span", {

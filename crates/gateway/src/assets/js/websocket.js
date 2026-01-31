@@ -73,6 +73,10 @@ export function connect() {
         var isActive = eventSession === S.activeSessionKey;
         var isChatPage = currentPage === "/";
 
+        // Suppress chat events for the active session while history is loading
+        // to prevent duplicate messages after reconnect / shift-reload.
+        if (isActive && S.sessionSwitchInProgress) return;
+
         if (p.sessionKey && !S.sessions.find(function (s) { return s.key === p.sessionKey; })) {
           fetchSessions();
         }
@@ -165,6 +169,8 @@ export function connect() {
           }
           isActive = p.sessionKey ? (p.sessionKey === S.activeSessionKey) : isActive;
           if (!isActive) return;
+          // Deduplicate: skip if this message was already rendered from history
+          if (p.messageIndex !== undefined && p.messageIndex <= S.lastHistoryIndex) return;
           var cleanText = stripChannelPrefix(p.text || "");
           var el = chatAddMsg("user", renderMarkdown(cleanText), true);
           if (el && p.channel) {
@@ -183,6 +189,11 @@ export function connect() {
           S.streamEl.innerHTML = renderMarkdown(S.streamText);
           S.chatMsgBox.scrollTop = S.chatMsgBox.scrollHeight;
         } else if (p.state === "final") {
+          // Deduplicate: skip if this message was already rendered from history
+          if (p.messageIndex !== undefined && p.messageIndex <= S.lastHistoryIndex) {
+            setSessionReplying(eventSession, false);
+            return;
+          }
           bumpSessionCount(eventSession, 1);
           setSessionReplying(eventSession, false);
           if (!isActive) {

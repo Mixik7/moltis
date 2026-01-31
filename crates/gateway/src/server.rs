@@ -433,6 +433,7 @@ pub async fn start_gateway(
     }
 
     services = services.with_session_metadata(Arc::clone(&session_metadata));
+    services = services.with_session_store(Arc::clone(&session_store));
 
     let state = GatewayState::with_sandbox_router(
         resolved_auth,

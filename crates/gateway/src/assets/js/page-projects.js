@@ -18,8 +18,8 @@ registerPage("/projects", function initProjects(container) {
   header.appendChild(detectBtn);
   wrapper.appendChild(header);
 
-  var formRow = createEl("div", { className: "flex items-end gap-3", style: "max-width:600px;" });
-  var dirGroup = createEl("div", { style: "flex:1;position:relative;" });
+  var formRow = createEl("div", { className: "project-form-row" });
+  var dirGroup = createEl("div", { className: "project-dir-group" });
   var dirLabel = createEl("div", { className: "text-xs text-[var(--muted)]", textContent: "Directory", style: "margin-bottom:4px;" });
   dirGroup.appendChild(dirLabel);
   var dirInput = createEl("input", {
@@ -30,9 +30,7 @@ registerPage("/projects", function initProjects(container) {
   });
   dirGroup.appendChild(dirInput);
 
-  var completionList = createEl("div", {
-    style: "position:absolute;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:4px;max-height:150px;overflow-y:auto;z-index:20;display:none;"
-  });
+  var completionList = createEl("div", { className: "project-completion" });
   dirGroup.appendChild(completionList);
   formRow.appendChild(dirGroup);
 
@@ -62,10 +60,8 @@ registerPage("/projects", function initProjects(container) {
         paths.forEach(function (p) {
           var item = createEl("div", {
             textContent: p,
-            style: "padding:6px 10px;cursor:pointer;font-size:.78rem;font-family:var(--font-mono);color:var(--text);transition:background .1s;"
+            className: "project-completion-item"
           });
-          item.addEventListener("mouseenter", function () { item.style.background = "var(--bg-hover)"; });
-          item.addEventListener("mouseleave", function () { item.style.background = ""; });
           item.addEventListener("click", function () {
             dirInput.value = p + "/";
             completionList.style.display = "none";
@@ -163,16 +159,13 @@ registerPage("/projects", function initProjects(container) {
   }
 
   function showEditForm(p, cardEl) {
-    var form = createEl("div", {
-      style: "background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:6px;"
-    });
+    var form = createEl("div", { className: "project-edit-form" });
 
     function labeledInput(labelText, value, placeholder, mono) {
-      var group = createEl("div", { style: "margin-bottom:8px;" });
+      var group = createEl("div", { className: "project-edit-group" });
       group.appendChild(createEl("div", {
-        className: "text-xs text-[var(--muted)]",
-        textContent: labelText,
-        style: "margin-bottom:3px;"
+        className: "text-xs text-[var(--muted)] project-edit-label",
+        textContent: labelText
       }));
       var input = createEl("input", {
         type: "text",
@@ -191,11 +184,10 @@ registerPage("/projects", function initProjects(container) {
     var dirField = labeledInput("Directory", p.directory, "/path/to/project", true);
     form.appendChild(dirField.group);
 
-    var promptGroup = createEl("div", { style: "margin-bottom:8px;" });
+    var promptGroup = createEl("div", { className: "project-edit-group" });
     promptGroup.appendChild(createEl("div", {
-      className: "text-xs text-[var(--muted)]",
-      textContent: "System prompt (optional)",
-      style: "margin-bottom:3px;"
+      className: "text-xs text-[var(--muted)] project-edit-label",
+      textContent: "System prompt (optional)"
     }));
     var promptInput = createEl("textarea", {
       className: "provider-key-input",

@@ -15,18 +15,16 @@ function openChannelModal(onAdded) {
   channelModalTitle.textContent = "Add Telegram Bot";
   channelModalBody.textContent = "";
 
-  var form = createEl("div", { style: "display:flex;flex-direction:column;gap:12px;padding:8px 0;" });
+  var form = createEl("div", { className: "channel-form" });
 
-  var helpBox = createEl("div", {
-    style: "background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;"
-  });
+  var helpBox = createEl("div", { className: "channel-card" });
   var helpTitle = createEl("span", {
     className: "text-xs font-medium text-[var(--text-strong)]",
     textContent: "How to create a Telegram bot"
   });
   helpBox.appendChild(helpTitle);
 
-  var step1 = createEl("div", { className: "text-xs text-[var(--muted)]", style: "display:flex;gap:4px;" });
+  var step1 = createEl("div", { className: "text-xs text-[var(--muted)] channel-help" });
   step1.appendChild(document.createTextNode("1. Open "));
   var bfLink = createEl("a", {
     href: "https://t.me/BotFather",
@@ -48,7 +46,7 @@ function openChannelModal(onAdded) {
     textContent: "3. Copy the bot token (looks like 123456:ABC-DEF...) and paste it below"
   }));
 
-  var helpTip = createEl("div", { className: "text-xs text-[var(--muted)]", style: "display:flex;gap:4px;margin-top:2px;" });
+  var helpTip = createEl("div", { className: "text-xs text-[var(--muted)] channel-help", style: "margin-top:2px;" });
   helpTip.appendChild(document.createTextNode("See the "));
   var docsLink = createEl("a", {
     href: "https://core.telegram.org/bots/tutorial",
@@ -116,8 +114,7 @@ function openChannelModal(onAdded) {
   });
 
   var errorEl = createEl("div", {
-    className: "text-xs text-[var(--error)]",
-    style: "display:none;padding:4px 0;"
+    className: "text-xs text-[var(--error)] channel-error"
   });
 
   var submitBtn = createEl("button", {
@@ -171,7 +168,7 @@ function openEditChannelModal(ch, onUpdated) {
   channelModalBody.textContent = "";
 
   var cfg = ch.config || {};
-  var form = createEl("div", { style: "display:flex;flex-direction:column;gap:12px;padding:8px 0;" });
+  var form = createEl("div", { className: "channel-form" });
 
   form.appendChild(createEl("div", { className: "text-sm text-[var(--text-strong)]", textContent: ch.name || ch.account_id }));
 
@@ -204,7 +201,7 @@ function openEditChannelModal(ch, onUpdated) {
   var allowInput = createEl("textarea", { rows: 3, className: "text-sm bg-[var(--surface2)] border border-[var(--border)] rounded px-3 py-2 text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)]", style: "font-family:var(--font-body);resize:vertical;" });
   allowInput.value = (cfg.allowlist || []).join("\n");
 
-  var errorEl = createEl("div", { className: "text-xs text-[var(--error)]", style: "display:none;padding:4px 0;" });
+  var errorEl = createEl("div", { className: "text-xs text-[var(--error)] channel-error" });
 
   var saveBtn = createEl("button", { className: "bg-[var(--accent-dim)] text-white border-none px-4 py-2 rounded text-sm cursor-pointer hover:bg-[var(--accent)] transition-colors", textContent: "Save Changes" });
   saveBtn.addEventListener("click", function () {
@@ -313,15 +310,15 @@ registerPage("/channels", function initChannels(container) {
       while (sendersTableWrap.firstChild) sendersTableWrap.removeChild(sendersTableWrap.firstChild);
 
       if (senders.length === 0) {
-        sendersTableWrap.appendChild(createEl("div", { className: "text-sm text-[var(--muted)]", style: "text-align:center;padding:30px 0;", textContent: "No messages received yet for this account." }));
+        sendersTableWrap.appendChild(createEl("div", { className: "text-sm text-[var(--muted)] senders-empty", textContent: "No messages received yet for this account." }));
         return;
       }
 
-      var table = createEl("table", { style: "width:100%;border-collapse:collapse;font-size:13px;" });
+      var table = createEl("table", { className: "senders-table" });
       var thead = document.createElement("thead");
       var headerRow = document.createElement("tr");
       ["Sender", "Username", "Messages", "Last Seen", "Status", "Action"].forEach(function (h) {
-        headerRow.appendChild(createEl("th", { textContent: h, style: "text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);font-weight:500;color:var(--muted);font-size:11px;text-transform:uppercase;" }));
+        headerRow.appendChild(createEl("th", { textContent: h, className: "senders-th" }));
       });
       thead.appendChild(headerRow);
       table.appendChild(thead);
@@ -329,20 +326,17 @@ registerPage("/channels", function initChannels(container) {
       var tbody = document.createElement("tbody");
       senders.forEach(function (s) {
         var tr = document.createElement("tr");
-        tr.style.cssText = "border-bottom:1px solid var(--border);";
-        tr.appendChild(createEl("td", { style: "padding:8px 10px;", textContent: s.sender_name || s.peer_id }));
-        tr.appendChild(createEl("td", { style: "padding:8px 10px;color:var(--muted);", textContent: s.username ? "@" + s.username : "\u2014" }));
-        tr.appendChild(createEl("td", { style: "padding:8px 10px;", textContent: String(s.message_count) }));
+        tr.appendChild(createEl("td", { className: "senders-td", textContent: s.sender_name || s.peer_id }));
+        tr.appendChild(createEl("td", { className: "senders-td", style: "color:var(--muted);", textContent: s.username ? "@" + s.username : "\u2014" }));
+        tr.appendChild(createEl("td", { className: "senders-td", textContent: String(s.message_count) }));
         var lastSeen = s.last_seen ? new Date(s.last_seen * 1000).toLocaleString() : "\u2014";
-        tr.appendChild(createEl("td", { style: "padding:8px 10px;color:var(--muted);font-size:12px;", textContent: lastSeen }));
+        tr.appendChild(createEl("td", { className: "senders-td", style: "color:var(--muted);font-size:12px;", textContent: lastSeen }));
 
-        var statusTd = document.createElement("td");
-        statusTd.style.cssText = "padding:8px 10px;";
+        var statusTd = createEl("td", { className: "senders-td" });
         statusTd.appendChild(createEl("span", { className: "provider-item-badge " + (s.allowed ? "configured" : "oauth"), textContent: s.allowed ? "Allowed" : "Denied" }));
         tr.appendChild(statusTd);
 
-        var actionTd = document.createElement("td");
-        actionTd.style.cssText = "padding:8px 10px;";
+        var actionTd = createEl("td", { className: "senders-td" });
         var identifier = s.username || s.peer_id;
         if (s.allowed) {
           var denyBtn = createEl("button", { className: "session-action-btn session-delete", textContent: "Deny", title: "Remove from allowlist" });
@@ -377,7 +371,7 @@ registerPage("/channels", function initChannels(container) {
       }
 
       channels.forEach(function (ch) {
-        var card = createEl("div", { style: "display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;" });
+        var card = createEl("div", { className: "provider-card", style: "padding:12px 14px;border-radius:8px;margin-bottom:8px;" });
         var left = createEl("div", { style: "display:flex;align-items:center;gap:10px;" });
         var icon = createEl("span", { style: "display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:var(--surface2);" });
         icon.appendChild(makeTelegramIcon());

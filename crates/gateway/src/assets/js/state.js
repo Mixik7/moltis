@@ -50,6 +50,10 @@ export var chatMsgBox = null;
 export var chatInput = null;
 export var chatSendBtn = null;
 export var chatBatchLoading = false;
+export var sessionSwitchInProgress = false;
+// Highest message index loaded from session history; used to deduplicate
+// real-time events that duplicate already-rendered history entries.
+export var lastHistoryIndex = -1;
 export var sessionContextWindow = 0;
 
 // Provider/channel page refresh callbacks
@@ -105,6 +109,8 @@ export function setChatMsgBox(v) { chatMsgBox = v; }
 export function setChatInput(v) { chatInput = v; }
 export function setChatSendBtn(v) { chatSendBtn = v; }
 export function setChatBatchLoading(v) { chatBatchLoading = v; }
+export function setSessionSwitchInProgress(v) { sessionSwitchInProgress = v; }
+export function setLastHistoryIndex(v) { lastHistoryIndex = v; }
 export function setSessionContextWindow(v) { sessionContextWindow = v; }
 export function setRefreshProvidersPage(v) { refreshProvidersPage = v; }
 export function setRefreshChannelsPage(v) { refreshChannelsPage = v; }

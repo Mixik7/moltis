@@ -185,6 +185,7 @@ export function switchSession(key, searchContext, projectId) {
   if (S.chatMsgBox) S.chatMsgBox.textContent = "";
   S.setStreamEl(null);
   S.setStreamText("");
+  S.setLastHistoryIndex(-1);
   S.setSessionTokens({ input: 0, output: 0 });
   S.setSessionContextWindow(0);
   updateTokenBar();
@@ -196,6 +197,7 @@ export function switchSession(key, searchContext, projectId) {
     if (isTarget) el.classList.remove("unread");
   });
 
+  S.setSessionSwitchInProgress(true);
   var switchParams = { key: key };
   if (projectId) switchParams.project_id = projectId;
   sendRpc("sessions.switch", switchParams).then(function (res) {
@@ -252,6 +254,8 @@ export function switchSession(key, searchContext, projectId) {
         }
       });
       S.setChatBatchLoading(false);
+      S.setLastHistoryIndex(history.length > 0 ? history.length - 1 : -1);
+      S.setSessionSwitchInProgress(false);
       // Fetch context window for the token bar percentage display.
       sendRpc("chat.context", {}).then(function (ctxRes) {
         if (ctxRes && ctxRes.ok && ctxRes.payload && ctxRes.payload.tokenUsage) {
@@ -284,6 +288,8 @@ export function switchSession(key, searchContext, projectId) {
       if (!sessionList.querySelector('.session-meta[data-session-key="' + key + '"]')) {
         fetchSessions();
       }
+    } else {
+      S.setSessionSwitchInProgress(false);
     }
   });
 }

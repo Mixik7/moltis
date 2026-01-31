@@ -10,10 +10,10 @@ registerPage("/logs", function initLogs(container) {
   container.style.cssText = "flex-direction:column;padding:0;overflow:hidden;";
 
   var toolbar = document.createElement("div");
-  toolbar.style.cssText = "display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;";
+  toolbar.className = "logs-toolbar";
 
   var levelSelect = document.createElement("select");
-  levelSelect.style.cssText = "background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:.78rem;padding:4px 8px;font-family:var(--font-body);";
+  levelSelect.className = "logs-select";
   var allOpt = document.createElement("option");
   allOpt.value = ""; allOpt.textContent = "All levels"; allOpt.selected = true;
   levelSelect.appendChild(allOpt);
@@ -25,22 +25,24 @@ registerPage("/logs", function initLogs(container) {
 
   var targetInput = document.createElement("input");
   targetInput.type = "text"; targetInput.placeholder = "Filter target\u2026";
-  targetInput.style.cssText = "background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:.78rem;padding:4px 8px;width:140px;font-family:var(--font-body);";
+  targetInput.className = "logs-input";
+  targetInput.style.width = "140px";
 
   var searchInput = document.createElement("input");
   searchInput.type = "text"; searchInput.placeholder = "Search\u2026";
-  searchInput.style.cssText = "background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:.78rem;padding:4px 8px;width:160px;font-family:var(--font-body);";
+  searchInput.className = "logs-input";
+  searchInput.style.width = "160px";
 
   var pauseBtn = document.createElement("button");
   pauseBtn.textContent = "Pause";
-  pauseBtn.style.cssText = "background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:.78rem;padding:4px 10px;cursor:pointer;";
+  pauseBtn.className = "logs-btn";
 
   var clearBtn = document.createElement("button");
   clearBtn.textContent = "Clear";
-  clearBtn.style.cssText = "background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:.78rem;padding:4px 10px;cursor:pointer;";
+  clearBtn.className = "logs-btn";
 
   var countLabel = document.createElement("span");
-  countLabel.style.cssText = "color:var(--muted);font-size:.72rem;margin-left:auto;";
+  countLabel.className = "logs-count";
   countLabel.textContent = "0 entries";
 
   toolbar.appendChild(levelSelect); toolbar.appendChild(targetInput);
@@ -49,7 +51,7 @@ registerPage("/logs", function initLogs(container) {
   container.appendChild(toolbar);
 
   var logArea = document.createElement("div");
-  logArea.style.cssText = "flex:1;overflow-y:auto;font-family:var(--font-mono);font-size:.78rem;line-height:1.5;padding:0;";
+  logArea.className = "logs-area";
   container.appendChild(logArea);
 
   var entryCount = 0;
@@ -72,19 +74,21 @@ registerPage("/logs", function initLogs(container) {
 
   function renderEntry(entry) {
     var row = document.createElement("div");
-    row.style.cssText = "display:flex;gap:8px;padding:1px 16px;background:" + levelBg(entry.level) + ";border-bottom:1px solid var(--border);";
+    row.className = "logs-row";
+    row.style.background = levelBg(entry.level);
     var ts = document.createElement("span");
-    ts.style.cssText = "color:var(--muted);flex-shrink:0;min-width:85px;";
+    ts.className = "logs-ts";
     var d = new Date(entry.ts);
     ts.textContent = d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", second:"2-digit" }) + "." + String(d.getMilliseconds()).padStart(3, "0");
     var lvl = document.createElement("span");
-    lvl.style.cssText = "color:" + levelColor(entry.level) + ";flex-shrink:0;min-width:42px;font-weight:600;";
+    lvl.className = "logs-level";
+    lvl.style.color = levelColor(entry.level);
     lvl.textContent = entry.level.toUpperCase().substring(0, 5);
     var tgt = document.createElement("span");
-    tgt.style.cssText = "color:var(--muted);flex-shrink:0;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+    tgt.className = "logs-target";
     tgt.textContent = entry.target;
     var msg = document.createElement("span");
-    msg.style.cssText = "color:var(--text);white-space:pre-wrap;word-break:break-all;min-width:0;";
+    msg.className = "logs-msg";
     msg.textContent = entry.message;
     if (entry.fields && Object.keys(entry.fields).length > 0) {
       msg.textContent += " " + Object.keys(entry.fields).map(function (k) { return k + "=" + entry.fields[k]; }).join(" ");

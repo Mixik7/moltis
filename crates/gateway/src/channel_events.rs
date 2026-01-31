@@ -88,11 +88,18 @@ impl ChannelEventSink for GatewayChannelEventSink {
 
             // Broadcast a "chat" event so the web UI shows the user message
             // in real-time (like typing from the UI).
+            // Include messageIndex so the client can deduplicate against history.
+            let msg_index = if let Some(ref store) = state.services.session_store {
+                store.count(&session_key).await.unwrap_or(0)
+            } else {
+                0
+            };
             let payload = serde_json::json!({
                 "state": "channel_user",
                 "text": text,
                 "channel": &meta,
                 "sessionKey": &session_key,
+                "messageIndex": msg_index,
             });
             broadcast(state, "chat", payload, BroadcastOpts {
                 drop_if_slow: true,

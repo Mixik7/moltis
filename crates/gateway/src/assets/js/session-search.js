@@ -8,7 +8,7 @@ import { switchSession } from "./sessions.js";
 
 var searchInput = S.$("sessionSearch");
 var searchResults = S.$("searchResults");
-searchResults.style.cssText = "position:absolute;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:0 0 6px 6px;max-height:260px;overflow-y:auto;z-index:30;box-shadow:var(--shadow-md);";
+searchResults.className = "search-dropdown hidden";
 var searchTimer = null;
 var searchHits = [];
 var searchIdx = -1;
@@ -39,9 +39,7 @@ function renderSearchResults(query) {
   searchResults.textContent = "";
   if (searchHits.length === 0) {
     var empty = document.createElement("div");
-    empty.style.padding = "8px 10px";
-    empty.style.fontSize = ".78rem";
-    empty.style.color = "var(--muted)";
+    empty.className = "search-hit-empty";
     empty.textContent = "No results";
     searchResults.appendChild(empty);
     searchResults.classList.remove("hidden");
@@ -50,28 +48,27 @@ function renderSearchResults(query) {
   searchHits.forEach(function (hit, i) {
     var el = document.createElement("div");
     el.className = "search-hit";
-    el.style.cssText = "padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;";
     el.setAttribute("data-idx", i);
-    el.addEventListener("mouseenter", function () { el.style.background = "var(--bg-hover)"; });
-    el.addEventListener("mouseleave", function () { el.style.background = ""; });
 
     var lbl = document.createElement("div");
-    lbl.style.cssText = "font-size:.82rem;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+    lbl.className = "search-hit-label";
     lbl.textContent = hit.label || hit.sessionKey;
     el.appendChild(lbl);
 
     // Safe: esc() escapes all HTML entities first, then we only wrap
     // the already-escaped query substring in <mark> tags.
     var snip = document.createElement("div");
-    snip.style.cssText = "font-size:.75rem;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+    snip.className = "search-hit-snippet";
     var escaped = esc(hit.snippet);
     var qEsc = esc(query);
     var re = new RegExp("(" + qEsc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "gi");
+    // Safe: both `escaped` and `qEsc` are HTML-entity-escaped by esc(),
+    // so <mark> wrapping cannot introduce script injection.
     snip.innerHTML = escaped.replace(re, "<mark>$1</mark>");
     el.appendChild(snip);
 
     var role = document.createElement("div");
-    role.style.cssText = "font-size:.68rem;color:var(--muted);margin-top:1px;opacity:.7;";
+    role.className = "search-hit-role";
     role.textContent = hit.role;
     el.appendChild(role);
 
@@ -91,7 +88,7 @@ function renderSearchResults(query) {
 function updateSearchActive() {
   var items = searchResults.querySelectorAll(".search-hit");
   items.forEach(function (el, i) {
-    el.style.background = (i === searchIdx) ? "var(--bg-hover)" : "";
+    el.classList.toggle("active", i === searchIdx);
   });
   if (searchIdx >= 0 && items[searchIdx]) {
     items[searchIdx].scrollIntoView({ block: "nearest" });

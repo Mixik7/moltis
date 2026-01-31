@@ -334,6 +334,10 @@ impl ChatService for LiveChatService {
             "chat.send"
         );
 
+        // Capture user message index (0-based) so we can include assistant
+        // message index in the "final" broadcast for client-side deduplication.
+        let user_message_index = history.len(); // user msg is at this index in the JSONL
+
         let provider_name = provider.name().to_string();
         let model_id = provider.id().to_string();
         let session_store = Arc::clone(&self.session_store);
@@ -451,6 +455,7 @@ impl ChatService for LiveChatService {
                     &session_key_clone,
                     ctx_ref,
                     stats_ref,
+                    user_message_index,
                 )
                 .await
             } else {
@@ -465,6 +470,7 @@ impl ChatService for LiveChatService {
                     &session_key_clone,
                     ctx_ref,
                     stats_ref,
+                    user_message_index,
                 )
                 .await
             };
@@ -833,6 +839,7 @@ async fn run_with_tools(
     session_key: &str,
     project_context: Option<&str>,
     session_context: Option<&str>,
+    user_message_index: usize,
 ) -> Option<(String, u32, u32)> {
     let native_tools = provider.supports_tools();
     let system_prompt = build_system_prompt_with_session(
@@ -964,6 +971,8 @@ async fn run_with_tools(
                 tool_calls = result.tool_calls_made,
                 "agent run complete"
             );
+            // Assistant message index = user message index + 1.
+            let assistant_message_index = user_message_index + 1;
             broadcast(
                 state,
                 "chat",
@@ -978,6 +987,7 @@ async fn run_with_tools(
                     "provider": provider_name,
                     "inputTokens": result.usage.input_tokens,
                     "outputTokens": result.usage.output_tokens,
+                    "messageIndex": assistant_message_index,
                 }),
                 BroadcastOpts::default(),
             )
@@ -1021,6 +1031,7 @@ async fn run_streaming(
     session_key: &str,
     project_context: Option<&str>,
     session_context: Option<&str>,
+    user_message_index: usize,
 ) -> Option<(String, u32, u32)> {
     let mut messages: Vec<serde_json::Value> = Vec::new();
     // Prepend session + project context as system messages.
@@ -1069,6 +1080,7 @@ async fn run_streaming(
                     output_tokens = usage.output_tokens,
                     "chat stream done"
                 );
+                let assistant_message_index = user_message_index + 1;
                 broadcast(
                     state,
                     "chat",
@@ -1081,6 +1093,7 @@ async fn run_streaming(
                         "provider": provider_name,
                         "inputTokens": usage.input_tokens,
                         "outputTokens": usage.output_tokens,
+                        "messageIndex": assistant_message_index,
                     }),
                     BroadcastOpts::default(),
                 )

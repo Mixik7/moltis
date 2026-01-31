@@ -7,16 +7,16 @@ registerPage("/skills", function initSkills(container) {
   container.style.cssText = "flex-direction:column;padding:0;overflow:hidden;";
 
   var wrapper = document.createElement("div");
-  wrapper.style.cssText = "flex:1;display:flex;flex-direction:column;min-width:0;padding:16px;gap:16px;overflow-y:auto;";
+  wrapper.className = "flex-1 flex flex-col min-w-0 p-4 gap-4 overflow-y-auto";
 
   var header = document.createElement("div");
-  header.style.cssText = "display:flex;align-items:center;gap:12px;";
+  header.className = "flex items-center gap-3";
   var title = document.createElement("h2");
   title.className = "text-lg font-medium text-[var(--text-strong)]";
   title.textContent = "Skills";
   var refreshBtn = document.createElement("button");
   refreshBtn.textContent = "Refresh";
-  refreshBtn.style.cssText = "background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);font-size:.78rem;padding:4px 10px;cursor:pointer;";
+  refreshBtn.className = "logs-btn";
   header.appendChild(title);
   header.appendChild(refreshBtn);
   wrapper.appendChild(header);
@@ -30,9 +30,9 @@ registerPage("/skills", function initSkills(container) {
   var warnKey = "moltis-skills-warning-dismissed";
   if (!localStorage.getItem(warnKey)) {
     var warn = document.createElement("div");
-    warn.style.cssText = "border:1px solid var(--error, #e55);border-radius:var(--radius-sm);background:color-mix(in srgb, var(--error, #e55) 8%, var(--surface));padding:12px 14px;font-size:.78rem;line-height:1.5;color:var(--text);position:relative;";
+    warn.className = "skills-warn";
     var warnTitle = document.createElement("div");
-    warnTitle.style.cssText = "font-weight:600;margin-bottom:4px;color:var(--error, #e55);";
+    warnTitle.className = "skills-warn-title";
     warnTitle.textContent = "Security Warning: Review skills before installing";
     warn.appendChild(warnTitle);
     var warnIntro = document.createElement("div");
@@ -63,7 +63,7 @@ registerPage("/skills", function initSkills(container) {
 
   // Toast
   var toastContainer = document.createElement("div");
-  toastContainer.style.cssText = "position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none;";
+  toastContainer.className = "skills-toast-container";
   document.body.appendChild(toastContainer);
 
   function showToast(message, type) {
@@ -78,14 +78,14 @@ registerPage("/skills", function initSkills(container) {
 
   // Install form
   var installBox = document.createElement("div");
-  installBox.style.cssText = "display:flex;gap:8px;align-items:center;";
+  installBox.className = "skills-install-box";
   var installInput = document.createElement("input");
   installInput.type = "text";
   installInput.placeholder = "owner/repo or full URL (e.g. anthropics/skills)";
-  installInput.style.cssText = "flex:1;max-width:360px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:.82rem;font-family:var(--font-mono);";
+  installInput.className = "skills-install-input";
   var installBtn = document.createElement("button");
   installBtn.textContent = "Install";
-  installBtn.style.cssText = "background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);font-size:.78rem;padding:6px 14px;cursor:pointer;font-weight:500;";
+  installBtn.className = "skills-install-btn";
   installBox.appendChild(installInput); installBox.appendChild(installBtn);
   wrapper.appendChild(installBox);
 
@@ -116,16 +116,16 @@ registerPage("/skills", function initSkills(container) {
     { repo: "vercel-labs/skills", desc: "Vercel skills toolkit" }
   ];
   var featuredSection = document.createElement("div");
-  featuredSection.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+  featuredSection.className = "skills-section";
   var featuredTitle = document.createElement("h3");
-  featuredTitle.style.cssText = "font-size:.82rem;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0;";
+  featuredTitle.className = "skills-section-title";
   featuredTitle.textContent = "Featured Skills";
   featuredSection.appendChild(featuredTitle);
   var featuredGrid = document.createElement("div");
-  featuredGrid.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;";
+  featuredGrid.className = "skills-featured-grid";
   featuredSkills.forEach(function (f) {
     var card = document.createElement("div");
-    card.style.cssText = "display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);";
+    card.className = "skills-featured-card";
     var info = document.createElement("div");
     var repoName = document.createElement("a");
     repoName.style.cssText = "font-family:var(--font-mono);font-size:.82rem;font-weight:500;color:var(--text-strong);text-decoration:none;";
@@ -149,23 +149,23 @@ registerPage("/skills", function initSkills(container) {
 
   // Repos section
   var reposSection = document.createElement("div");
-  reposSection.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+  reposSection.className = "skills-section";
   var reposTitle = document.createElement("h3");
-  reposTitle.style.cssText = "font-size:.82rem;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0;";
+  reposTitle.className = "skills-section-title";
   reposTitle.textContent = "Installed Repositories";
   reposSection.appendChild(reposTitle);
   var reposWrap = document.createElement("div");
-  reposWrap.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+  reposWrap.className = "skills-section";
   reposSection.appendChild(reposWrap);
   wrapper.appendChild(reposSection);
 
   // Enabled skills table
   var skillsTitle = document.createElement("h3");
-  skillsTitle.style.cssText = "font-size:.82rem;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0;";
+  skillsTitle.className = "skills-section-title";
   skillsTitle.textContent = "Enabled Skills";
   wrapper.appendChild(skillsTitle);
   var tableWrap = document.createElement("div");
-  tableWrap.style.cssText = "border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;";
+  tableWrap.className = "skills-table-wrap";
   wrapper.appendChild(tableWrap);
   container.appendChild(wrapper);
 
@@ -180,9 +180,9 @@ registerPage("/skills", function initSkills(container) {
     }
     repos.forEach(function (repo) {
       var card = document.createElement("div");
-      card.style.cssText = "border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);position:relative;";
+      card.className = "skills-repo-card";
       var hdr = document.createElement("div");
-      hdr.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:10px 12px;cursor:pointer;";
+      hdr.className = "skills-repo-header";
       var hdrLeft = document.createElement("div");
       hdrLeft.style.cssText = "display:flex;align-items:center;gap:8px;";
       var arrow = document.createElement("span");
@@ -215,7 +215,7 @@ registerPage("/skills", function initSkills(container) {
       card.appendChild(hdr);
 
       var detail = document.createElement("div");
-      detail.style.cssText = "display:none;border-top:1px solid var(--border);padding:8px 12px;";
+      detail.className = "skills-repo-detail";
       var expanded = false;
       hdr.addEventListener("click", function () {
         expanded = !expanded;
@@ -231,12 +231,12 @@ registerPage("/skills", function initSkills(container) {
       repoSearchInput.style.cssText = "width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:.8rem;font-family:var(--font-mono);box-sizing:border-box;";
       searchRow.appendChild(repoSearchInput);
       var acDrop = document.createElement("div");
-      acDrop.style.cssText = "position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);background:var(--surface);z-index:100;display:none;box-shadow:0 4px 12px rgba(0,0,0,.15);";
+      acDrop.className = "skills-ac-dropdown";
       searchRow.appendChild(acDrop);
       detail.appendChild(searchRow);
 
       var detailPanel = document.createElement("div");
-      detailPanel.style.cssText = "display:none;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);padding:12px;margin-top:4px;";
+      detailPanel.className = "skills-detail-panel";
       detail.appendChild(detailPanel);
 
       var allSkills = repo.skills || [];
@@ -259,9 +259,7 @@ registerPage("/skills", function initSkills(container) {
           }
           matches.forEach(function (skill) {
             var item = document.createElement("div");
-            item.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:5px 10px;cursor:pointer;font-size:.8rem;border-bottom:1px solid var(--border);";
-            item.onmouseenter = function () { item.style.background = "var(--bg-hover)"; };
-            item.onmouseleave = function () { item.style.background = ""; };
+            item.className = "skills-ac-item";
             var left = document.createElement("div");
             left.style.cssText = "display:flex;align-items:center;gap:6px;min-width:0;";
             var nm = document.createElement("span");

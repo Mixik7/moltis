@@ -498,7 +498,6 @@ registerPage("/", function initChat(container) {
   });
   S.chatSendBtn.addEventListener("click", sendChat);
 
-  if (S.connected) switchSession(S.activeSessionKey);
   S.chatInput.focus();
 }, function teardownChat() {
   slashHideMenu();
