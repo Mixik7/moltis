@@ -12,6 +12,7 @@ use crate::{
     client::{McpClient, McpClientState},
     registry::{McpRegistry, McpServerConfig},
     tool_bridge::McpToolBridge,
+    traits::McpClientTrait,
     types::McpToolDef,
 };
 
@@ -29,7 +30,7 @@ pub struct ServerStatus {
 
 /// Manages the lifecycle of multiple MCP server connections.
 pub struct McpManager {
-    clients: RwLock<HashMap<String, Arc<RwLock<McpClient>>>>,
+    clients: RwLock<HashMap<String, Arc<RwLock<dyn McpClientTrait>>>>,
     /// Cached tools per server.
     tools: RwLock<HashMap<String, Vec<McpToolDef>>>,
     registry: RwLock<McpRegistry>,
@@ -80,7 +81,7 @@ impl McpManager {
             "MCP server started with tools"
         );
 
-        let client = Arc::new(RwLock::new(client));
+        let client: Arc<RwLock<dyn McpClientTrait>> = Arc::new(RwLock::new(client));
         self.clients.write().await.insert(name.to_string(), client);
         self.tools.write().await.insert(name.to_string(), tool_defs);
 
@@ -229,16 +230,12 @@ impl McpManager {
     }
 
     /// Get read access to the registry.
-    pub async fn registry_read(
-        &self,
-    ) -> tokio::sync::RwLockReadGuard<'_, McpRegistry> {
+    pub async fn registry_read(&self) -> tokio::sync::RwLockReadGuard<'_, McpRegistry> {
         self.registry.read().await
     }
 
     /// Get write access to the registry.
-    pub async fn registry_write(
-        &self,
-    ) -> tokio::sync::RwLockWriteGuard<'_, McpRegistry> {
+    pub async fn registry_write(&self) -> tokio::sync::RwLockWriteGuard<'_, McpRegistry> {
         self.registry.write().await
     }
 

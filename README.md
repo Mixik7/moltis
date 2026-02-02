@@ -23,6 +23,9 @@ multiple LLM providers and communication channels, inspired by
 - **OAuth flows** — built-in OAuth2 for provider authentication
 - **TLS support** — automatic self-signed certificate generation
 - **Observability** — OpenTelemetry tracing with OTLP export
+- **MCP (Model Context Protocol) support** — connect to MCP tool servers over
+  stdio with trait-based transport and client abstractions for future SDK
+  swapability
 - **Authentication** — password and passkey (WebAuthn) authentication with
   session cookies, API key support, and a first-run setup code flow
 - **Onboarding wizard** — guided setup for agent identity (name, emoji,
@@ -75,6 +78,7 @@ Moltis is organized as a Cargo workspace with the following crates:
 | `moltis-sessions` | Session persistence |
 | `moltis-memory` | Embeddings-based knowledge base |
 | `moltis-skills` | Skill/plugin system |
+| `moltis-mcp` | MCP client, transport, and tool bridge |
 | `moltis-tools` | Tool/function execution |
 | `moltis-routing` | Message routing |
 | `moltis-projects` | Project/workspace management |

@@ -19,7 +19,10 @@ use {
     tracing::{debug, info, trace, warn},
 };
 
-use crate::types::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
+use crate::{
+    traits::McpTransport,
+    types::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse},
+};
 
 /// Stdio-based transport for an MCP server process.
 pub struct StdioTransport {
@@ -138,9 +141,11 @@ impl StdioTransport {
         *transport.reader_handle.lock().await = Some(handle);
         Ok(transport)
     }
+}
 
-    /// Send a JSON-RPC request and wait for the response.
-    pub async fn request(
+#[async_trait::async_trait]
+impl McpTransport for StdioTransport {
+    async fn request(
         &self,
         method: &str,
         params: Option<serde_json::Value>,
@@ -168,18 +173,25 @@ impl StdioTransport {
 
         let resp = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
             .await
-            .with_context(|| format!("MCP request '{method}' timed out after 30s (no response from server)"))?
-            .with_context(|| format!("MCP reader task dropped while waiting for '{method}' response"))?;
+            .with_context(|| {
+                format!("MCP request '{method}' timed out after 30s (no response from server)")
+            })?
+            .with_context(|| {
+                format!("MCP reader task dropped while waiting for '{method}' response")
+            })?;
 
         if let Some(ref err) = resp.error {
-            bail!("MCP error on '{method}': code={} message={}", err.code, err.message);
+            bail!(
+                "MCP error on '{method}': code={} message={}",
+                err.code,
+                err.message
+            );
         }
 
         Ok(resp)
     }
 
-    /// Send a JSON-RPC notification (no response expected).
-    pub async fn notify(&self, method: &str, params: Option<serde_json::Value>) -> Result<()> {
+    async fn notify(&self, method: &str, params: Option<serde_json::Value>) -> Result<()> {
         let notif = JsonRpcNotification {
             jsonrpc: "2.0".into(),
             method: method.into(),
@@ -197,25 +209,17 @@ impl StdioTransport {
         Ok(())
     }
 
-    /// Check if the child process is still running.
-    pub async fn is_alive(&self) -> bool {
+    async fn is_alive(&self) -> bool {
         let mut child = self.child.lock().await;
         matches!(child.try_wait(), Ok(None))
     }
 
-    /// Kill the child process.
-    pub async fn kill(&self) {
+    async fn kill(&self) {
         if let Some(handle) = self.reader_handle.lock().await.take() {
             handle.abort();
         }
         let mut child = self.child.lock().await;
         let _ = child.kill().await;
-    }
-}
-
-impl Drop for StdioTransport {
-    fn drop(&mut self) {
-        // Reader task will be cleaned up when the child is killed on drop.
     }
 }
 

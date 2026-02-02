@@ -11,6 +11,7 @@ pub mod client;
 pub mod manager;
 pub mod registry;
 pub mod tool_bridge;
+pub mod traits;
 pub mod transport;
 pub mod types;
 
@@ -19,4 +20,5 @@ pub use {
     manager::McpManager,
     registry::{McpRegistry, McpServerConfig},
     tool_bridge::{McpAgentTool, McpToolBridge},
+    traits::{McpClientTrait, McpTransport},
 };

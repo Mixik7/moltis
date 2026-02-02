@@ -8,6 +8,7 @@ use {
 };
 
 use crate::{
+    traits::{McpClientTrait, McpTransport},
     transport::StdioTransport,
     types::{
         ClientCapabilities, ClientInfo, InitializeParams, InitializeResult, McpToolDef,
@@ -29,7 +30,7 @@ pub enum McpClientState {
 /// An MCP client connected to a single server via stdio.
 pub struct McpClient {
     server_name: String,
-    transport: Arc<StdioTransport>,
+    transport: Arc<dyn McpTransport>,
     state: McpClientState,
     server_info: Option<InitializeResult>,
     tools: Vec<McpToolDef>,
@@ -99,8 +100,33 @@ impl McpClient {
         Ok(())
     }
 
-    /// Fetch the list of tools from the server.
-    pub async fn list_tools(&mut self) -> Result<&[McpToolDef]> {
+    fn ensure_ready(&self) -> Result<()> {
+        if self.state != McpClientState::Ready {
+            anyhow::bail!(
+                "MCP client for '{}' is not ready (state: {:?})",
+                self.server_name,
+                self.state
+            );
+        }
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl McpClientTrait for McpClient {
+    fn server_name(&self) -> &str {
+        &self.server_name
+    }
+
+    fn state(&self) -> McpClientState {
+        self.state
+    }
+
+    fn tools(&self) -> &[McpToolDef] {
+        &self.tools
+    }
+
+    async fn list_tools(&mut self) -> Result<&[McpToolDef]> {
         self.ensure_ready()?;
 
         let resp = self.transport.request("tools/list", None).await?;
@@ -117,12 +143,7 @@ impl McpClient {
         Ok(&self.tools)
     }
 
-    /// Call a tool on the server.
-    pub async fn call_tool(
-        &self,
-        name: &str,
-        arguments: serde_json::Value,
-    ) -> Result<ToolsCallResult> {
+    async fn call_tool(&self, name: &str, arguments: serde_json::Value) -> Result<ToolsCallResult> {
         self.ensure_ready()?;
 
         let params = ToolsCallParams {
@@ -141,39 +162,13 @@ impl McpClient {
         Ok(result)
     }
 
-    /// Get the cached list of tools (call `list_tools` first).
-    pub fn tools(&self) -> &[McpToolDef] {
-        &self.tools
-    }
-
-    pub fn server_name(&self) -> &str {
-        &self.server_name
-    }
-
-    pub fn state(&self) -> McpClientState {
-        self.state
-    }
-
-    /// Check if the server process is still running.
-    pub async fn is_alive(&self) -> bool {
+    async fn is_alive(&self) -> bool {
         self.transport.is_alive().await
     }
 
-    /// Shut down the server.
-    pub async fn shutdown(&mut self) {
+    async fn shutdown(&mut self) {
         self.state = McpClientState::Closed;
         self.transport.kill().await;
-    }
-
-    fn ensure_ready(&self) -> Result<()> {
-        if self.state != McpClientState::Ready {
-            anyhow::bail!(
-                "MCP client for '{}' is not ready (state: {:?})",
-                self.server_name,
-                self.state
-            );
-        }
-        Ok(())
     }
 }
 

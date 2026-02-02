@@ -5,7 +5,7 @@ use std::sync::Arc;
 use {anyhow::Result, async_trait::async_trait};
 
 use crate::{
-    client::McpClient,
+    traits::McpClientTrait,
     types::{McpToolDef, ToolContent},
 };
 
@@ -17,7 +17,7 @@ pub struct McpToolBridge {
     original_name: String,
     description: String,
     input_schema: serde_json::Value,
-    client: Arc<tokio::sync::RwLock<McpClient>>,
+    client: Arc<tokio::sync::RwLock<dyn McpClientTrait>>,
 }
 
 impl McpToolBridge {
@@ -25,7 +25,7 @@ impl McpToolBridge {
     pub fn new(
         server_name: &str,
         tool_def: &McpToolDef,
-        client: Arc<tokio::sync::RwLock<McpClient>>,
+        client: Arc<tokio::sync::RwLock<dyn McpClientTrait>>,
     ) -> Self {
         Self {
             prefixed_name: format!("mcp__{}__{}", server_name, tool_def.name),
@@ -43,7 +43,7 @@ impl McpToolBridge {
     pub fn from_client(
         server_name: &str,
         tools: &[McpToolDef],
-        client: Arc<tokio::sync::RwLock<McpClient>>,
+        client: Arc<tokio::sync::RwLock<dyn McpClientTrait>>,
     ) -> Vec<Self> {
         tools
             .iter()

@@ -210,11 +210,7 @@ pub async fn start_gateway(
                     });
             }
         }
-        mcp_configured_count = merged
-            .servers
-            .values()
-            .filter(|s| s.enabled)
-            .count();
+        mcp_configured_count = merged.servers.values().filter(|s| s.enabled).count();
         let mcp_manager = Arc::new(moltis_mcp::McpManager::new(merged));
         // Start enabled servers in the background.
         let mgr = Arc::clone(&mcp_manager);
