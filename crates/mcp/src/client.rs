@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use {
     anyhow::{Context, Result},
-    tracing::{debug, info},
+    tracing::{debug, info, warn},
 };
 
 use crate::{
@@ -43,6 +43,7 @@ impl McpClient {
         args: &[String],
         env: &HashMap<String, String>,
     ) -> Result<Self> {
+        info!(server = %server_name, command = %command, args = ?args, "connecting to MCP server");
         let transport = StdioTransport::spawn(command, args, env).await?;
 
         let mut client = Self {
@@ -53,7 +54,10 @@ impl McpClient {
             tools: Vec::new(),
         };
 
-        client.initialize().await?;
+        if let Err(e) = client.initialize().await {
+            warn!(server = %server_name, error = %e, "MCP initialize handshake failed");
+            return Err(e);
+        }
         Ok(client)
     }
 

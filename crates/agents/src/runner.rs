@@ -315,8 +315,7 @@ pub async fn run_agent_loop_with_context(
                 let tool = tools.get(&tc.name);
                 let mut args = tc.arguments.clone();
                 if let Some(ref ctx) = tool_context
-                    && let (Some(args_obj), Some(ctx_obj)) =
-                        (args.as_object_mut(), ctx.as_object())
+                    && let (Some(args_obj), Some(ctx_obj)) = (args.as_object_mut(), ctx.as_object())
                 {
                     for (k, v) in ctx_obj {
                         args_obj.insert(k.clone(), v.clone());
@@ -326,13 +325,19 @@ pub async fn run_agent_loop_with_context(
                     if let Some(tool) = tool {
                         match tool.execute(args).await {
                             Ok(val) => (true, serde_json::json!({ "result": val }), None),
-                            Err(e) => {
-                                (false, serde_json::json!({ "error": e.to_string() }), Some(e.to_string()))
-                            }
+                            Err(e) => (
+                                false,
+                                serde_json::json!({ "error": e.to_string() }),
+                                Some(e.to_string()),
+                            ),
                         }
                     } else {
                         let err_str = format!("unknown tool: {}", tc.name);
-                        (false, serde_json::json!({ "error": err_str }), Some(err_str))
+                        (
+                            false,
+                            serde_json::json!({ "error": err_str }),
+                            Some(err_str),
+                        )
                     }
                 }
             })

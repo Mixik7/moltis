@@ -846,11 +846,21 @@ impl ChatService for LiveChatService {
             Err(_) => vec![],
         };
 
+        // MCP servers
+        let mcp_servers = self
+            .state
+            .services
+            .mcp
+            .list()
+            .await
+            .unwrap_or(serde_json::json!([]));
+
         Ok(serde_json::json!({
             "session": session_info,
             "project": project_info,
             "tools": tools,
             "skills": skills_list,
+            "mcpServers": mcp_servers,
             "sandbox": sandbox_info,
             "tokenUsage": {
                 "inputTokens": total_input,

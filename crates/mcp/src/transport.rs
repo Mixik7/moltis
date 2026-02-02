@@ -16,7 +16,7 @@ use {
         process::{Child, Command},
         sync::{Mutex, oneshot},
     },
-    tracing::{debug, trace, warn},
+    tracing::{debug, info, trace, warn},
 };
 
 use crate::types::{JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
@@ -38,12 +38,18 @@ impl StdioTransport {
         args: &[String],
         env: &HashMap<String, String>,
     ) -> Result<Arc<Self>> {
+        info!(
+            command = %command,
+            args = ?args,
+            "spawning MCP server process"
+        );
+
         let mut cmd = Command::new(command);
         cmd.args(args)
             .envs(env)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
 
         let mut child = cmd
@@ -52,6 +58,7 @@ impl StdioTransport {
 
         let stdin = child.stdin.take().context("failed to capture stdin")?;
         let stdout = child.stdout.take().context("failed to capture stdout")?;
+        let stderr = child.stderr.take();
 
         let pending: Arc<Mutex<HashMap<String, oneshot::Sender<JsonRpcResponse>>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -64,7 +71,28 @@ impl StdioTransport {
             reader_handle: Mutex::new(None),
         });
 
-        // Start reader task.
+        // Start stderr reader task (log server errors).
+        if let Some(stderr) = stderr {
+            tokio::spawn(async move {
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                warn!(stderr = %trimmed, "MCP server stderr");
+                            }
+                        },
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
+        // Start stdout reader task.
         let pending_clone = Arc::clone(&pending);
         let handle = tokio::spawn(async move {
             let mut reader = BufReader::new(stdout);
@@ -81,19 +109,23 @@ impl StdioTransport {
                         if trimmed.is_empty() {
                             continue;
                         }
-                        trace!(raw = %trimmed, "MCP server -> client");
+                        debug!(raw = %trimmed, "MCP server -> client");
 
                         // Try to parse as response (has id field).
-                        if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(trimmed) {
-                            let key = resp.id.to_string();
-                            let mut map = pending_clone.lock().await;
-                            if let Some(tx) = map.remove(&key) {
-                                let _ = tx.send(resp);
-                            } else {
-                                warn!(id = %key, "received response for unknown request id");
-                            }
+                        match serde_json::from_str::<JsonRpcResponse>(trimmed) {
+                            Ok(resp) => {
+                                let key = resp.id.to_string();
+                                let mut map = pending_clone.lock().await;
+                                if let Some(tx) = map.remove(&key) {
+                                    let _ = tx.send(resp);
+                                } else {
+                                    warn!(id = %key, "received response for unknown request id");
+                                }
+                            },
+                            Err(e) => {
+                                debug!(error = %e, line = %trimmed, "MCP server sent non-response line");
+                            },
                         }
-                        // Notifications (no id) are currently ignored.
                     },
                     Err(e) => {
                         warn!(error = %e, "error reading from MCP server stdout");
@@ -126,7 +158,7 @@ impl StdioTransport {
         let mut payload = serde_json::to_string(&req)?;
         payload.push('\n');
 
-        trace!(method = %method, id = %id, "client -> MCP server");
+        debug!(method = %method, id = %id, "client -> MCP server");
 
         {
             let mut stdin = self.stdin.lock().await;
@@ -136,11 +168,11 @@ impl StdioTransport {
 
         let resp = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
             .await
-            .context("MCP request timed out")?
-            .context("MCP reader task dropped")?;
+            .with_context(|| format!("MCP request '{method}' timed out after 30s (no response from server)"))?
+            .with_context(|| format!("MCP reader task dropped while waiting for '{method}' response"))?;
 
         if let Some(ref err) = resp.error {
-            bail!("MCP error {}: {}", err.code, err.message);
+            bail!("MCP error on '{method}': code={} message={}", err.code, err.message);
         }
 
         Ok(resp)

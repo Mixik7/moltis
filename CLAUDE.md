@@ -51,6 +51,40 @@ toggle their visibility. This keeps markup in HTML where it belongs and makes
 the structure easier to inspect. Preact components (HTM templates) are the
 exception — they use `html` tagged templates by design.
 
+### CSS Architecture
+
+The project has two layers of stylesheets:
+
+1. **Hand-written CSS** in `crates/gateway/src/assets/css/` (`base.css`,
+   `layout.css`, `chat.css`, `components.css`) — loaded directly by
+   `index.html`. These contain CSS variables, layout rules, and reusable
+   component classes (`provider-item`, `provider-key-input`, `provider-btn`,
+   `skills-repo-card`, etc.).
+
+2. **Tailwind CSS v4** — source is `crates/gateway/ui/input.css`, output is
+   `crates/gateway/src/assets/style.css` (also loaded by `index.html`).
+   Tailwind scans `crates/gateway/src/assets/` for class usage via the
+   `source("../src/assets/")` directive in `input.css`.
+
+**Building Tailwind**: After adding or changing Tailwind utility classes in JS
+or HTML files, you must rebuild the CSS:
+
+```bash
+cd crates/gateway/ui
+npm install              # first time only
+npx tailwindcss -i input.css -o ../src/assets/style.css --minify
+```
+
+Use `npm run watch` during development for automatic rebuilds on file changes.
+
+**Using Tailwind**: Always use Tailwind utility classes instead of inline
+`style=` attributes. Use arbitrary value syntax for CSS variables:
+`text-[var(--muted)]`, `bg-[var(--surface2)]`, `border-[var(--border)]`,
+`rounded-[var(--radius-sm)]`, etc. Only fall back to inline styles when
+Tailwind genuinely cannot express the value (e.g. dynamic values computed at
+runtime from signals). The existing component classes from `input.css` are
+fine to use alongside Tailwind utilities.
+
 ### Server-Injected Data (gon pattern)
 
 When the frontend needs server-side data **at page load** (before any async

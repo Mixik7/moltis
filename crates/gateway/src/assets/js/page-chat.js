@@ -249,6 +249,29 @@ function renderContextSkillsSection(card, data) {
 	card.appendChild(skillsSection);
 }
 
+function renderContextMcpSection(card, data) {
+	var servers = data.mcpServers || [];
+	var section = ctxSection("MCP Tools");
+	var running = servers.filter((s) => s.state === "running");
+	if (running.length > 0) {
+		var wrap = ctxEl("div", "");
+		wrap.className = "ctx-tool-wrap";
+		running.forEach((s) => {
+			var tag = ctxEl("span", "ctx-tag");
+			var dot = ctxEl("span", "ctx-tag-dot");
+			dot.style.background = "var(--ok)";
+			tag.appendChild(dot);
+			tag.appendChild(document.createTextNode(s.name));
+			tag.title = `${s.tool_count} tool${s.tool_count !== 1 ? "s" : ""} — ${s.state}`;
+			wrap.appendChild(tag);
+		});
+		section.appendChild(wrap);
+	} else {
+		section.appendChild(ctxEl("div", "ctx-empty", "No MCP tools running"));
+	}
+	card.appendChild(section);
+}
+
 function renderContextSandboxSection(card, data) {
 	var sb = data.sandbox || {};
 	var sandboxSection = ctxSection("Sandbox");
@@ -310,6 +333,7 @@ function renderContextCard(data) {
 	renderContextSessionSection(card, data);
 	renderContextProjectSection(card, data);
 	renderContextSkillsSection(card, data);
+	renderContextMcpSection(card, data);
 	renderContextToolsSection(card, data);
 	renderContextSandboxSection(card, data);
 	renderContextTokensSection(card, data);

@@ -53,13 +53,25 @@ impl McpService for LiveMcpService {
             enabled,
         };
 
-        info!(server = %name, "adding MCP server via API");
+        // If a server with this name already exists, append a numeric suffix.
+        let final_name = {
+            let reg = self.manager.registry_read().await;
+            let mut candidate = name.to_string();
+            let mut n = 2u32;
+            while reg.servers.contains_key(&candidate) {
+                candidate = format!("{name}-{n}");
+                n += 1;
+            }
+            candidate
+        };
+
+        info!(server = %final_name, "adding MCP server via API");
         self.manager
-            .add_server(name.into(), config, true)
+            .add_server(final_name.clone(), config, true)
             .await
             .map_err(|e| e.to_string())?;
 
-        Ok(serde_json::json!({ "ok": true }))
+        Ok(serde_json::json!({ "ok": true, "name": final_name }))
     }
 
     async fn remove(&self, params: Value) -> ServiceResult {
@@ -83,13 +95,12 @@ impl McpService for LiveMcpService {
             .and_then(|v| v.as_str())
             .ok_or_else(|| "missing 'name' parameter".to_string())?;
 
-        let ok = self
-            .manager
+        self.manager
             .enable_server(name)
             .await
             .map_err(|e| e.to_string())?;
 
-        Ok(serde_json::json!({ "enabled": ok }))
+        Ok(serde_json::json!({ "enabled": true }))
     }
 
     async fn disable(&self, params: Value) -> ServiceResult {
