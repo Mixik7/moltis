@@ -19,14 +19,22 @@ multiple LLM providers and communication channels, inspired by
   management
 - **Memory and knowledge base** — embeddings-powered long-term memory
 - **Skills and plugins** — extensible skill system and plugin architecture
+- **Web browsing** — web search (Brave, Perplexity) and URL fetching with
+  readability extraction and SSRF protection
 - **Scheduled tasks** — cron-based task execution
 - **OAuth flows** — built-in OAuth2 for provider authentication
 - **TLS support** — automatic self-signed certificate generation
 - **Observability** — OpenTelemetry tracing with OTLP export
+- **Sandboxed execution** — Docker and Apple Container backends with pre-built
+  images, configurable packages, and per-session isolation
 - **Authentication** — password and passkey (WebAuthn) authentication with
   session cookies, API key support, and a first-run setup code flow
+- **WebSocket security** — Origin validation to prevent Cross-Site WebSocket
+  Hijacking (CSWSH)
 - **Onboarding wizard** — guided setup for agent identity (name, emoji,
   creature, vibe, soul) and user profile
+- **Default config on first run** — writes a complete `moltis.toml` with all
+  defaults so you can edit packages and settings without recompiling
 - **Configurable directories** — `--config-dir` / `--data-dir` CLI flags and
   `MOLTIS_CONFIG_DIR` / `MOLTIS_DATA_DIR` environment variables
 
@@ -59,6 +67,20 @@ cargo run -- gateway --config-dir /path/to/config --data-dir /path/to/data
 ```bash
 cargo test --all-features
 ```
+
+### Sandbox Image Management
+
+```bash
+moltis sandbox list          # List pre-built sandbox images
+moltis sandbox build         # Build image from configured base + packages
+moltis sandbox clean         # Remove all pre-built sandbox images
+moltis sandbox remove <tag>  # Remove a specific image
+```
+
+The gateway pre-builds a sandbox image at startup from the base image
+(`ubuntu:25.10`) plus the packages listed in `moltis.toml`. Edit the
+`[tools.exec.sandbox] packages` list and restart — a new image with a
+different tag is built automatically.
 
 ## Project Structure
 

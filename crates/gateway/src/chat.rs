@@ -364,6 +364,10 @@ impl ChatService for LiveChatService {
         let session_store = Arc::clone(&self.session_store);
         let session_metadata = Arc::clone(&self.session_metadata);
         let session_key_clone = session_key.clone();
+        let accept_language = params
+            .get("_accept_language")
+            .and_then(|v| v.as_str())
+            .map(String::from);
         // Compute session context stats for the system prompt.
         let session_stats = {
             let msg_count = history.len() + 1; // +1 for the current user message
@@ -494,6 +498,7 @@ impl ChatService for LiveChatService {
                     stats_ref,
                     user_message_index,
                     &discovered_skills,
+                    accept_language.clone(),
                 )
                 .await
             };
@@ -813,6 +818,17 @@ impl ChatService for LiveChatService {
                 Some(img) if !img.is_empty() => img,
                 _ => router.default_image().await,
             };
+            let container_name = {
+                let id = router.sandbox_id_for(&session_key);
+                format!(
+                    "{}-{}",
+                    config
+                        .container_prefix
+                        .as_deref()
+                        .unwrap_or("moltis-sandbox"),
+                    id.key
+                )
+            };
             serde_json::json!({
                 "enabled": is_sandboxed,
                 "backend": router.backend_name(),
@@ -820,6 +836,7 @@ impl ChatService for LiveChatService {
                 "scope": config.scope,
                 "workspaceMount": config.workspace_mount,
                 "image": effective_image,
+                "containerName": container_name,
             })
         } else {
             serde_json::json!({
@@ -877,6 +894,7 @@ async fn run_with_tools(
     session_context: Option<&str>,
     user_message_index: usize,
     skills: &[moltis_skills::types::SkillMetadata],
+    accept_language: Option<String>,
 ) -> Option<(String, u32, u32)> {
     // Load identity and user profile from config so the LLM knows who it is.
     let config = moltis_config::discover_and_load();
@@ -991,8 +1009,12 @@ async fn run_with_tools(
         Some(history.to_vec())
     };
 
-    // Inject session key into tool call params so tools can resolve per-session state.
-    let tool_context = serde_json::json!({ "_session_key": session_key });
+    // Inject session key and accept-language into tool call params so tools can
+    // resolve per-session state and forward the user's locale to web requests.
+    let mut tool_context = serde_json::json!({ "_session_key": session_key });
+    if let Some(lang) = accept_language.as_deref() {
+        tool_context["_accept_language"] = serde_json::json!(lang);
+    }
 
     let provider_ref = provider.clone();
     match run_agent_loop_with_context(
