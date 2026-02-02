@@ -1,4 +1,5 @@
 mod auth_commands;
+mod hooks_commands;
 mod sandbox_commands;
 
 use {
@@ -82,6 +83,11 @@ enum Commands {
     Skills {
         #[command(subcommand)]
         action: SkillAction,
+    },
+    /// Hook management.
+    Hooks {
+        #[command(subcommand)]
+        action: hooks_commands::HookAction,
     },
     /// Sandbox image management.
     Sandbox {
@@ -274,6 +280,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Auth { action } => auth_commands::handle_auth(action).await,
         Commands::Sandbox { action } => sandbox_commands::handle_sandbox(action).await,
         Commands::Skills { action } => handle_skills(action).await,
+        Commands::Hooks { action } => hooks_commands::handle_hooks(action).await,
         #[cfg(feature = "tls")]
         Commands::TrustCa => trust_ca().await,
         _ => {

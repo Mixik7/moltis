@@ -1,5 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
+use secrecy::ExposeSecret;
+
 #[cfg(feature = "tls")]
 use std::path::PathBuf;
 
@@ -13,7 +15,7 @@ use {
         routing::get,
     },
     tower_http::cors::{Any, CorsLayer},
-    tracing::{debug, info},
+    tracing::{debug, info, warn},
 };
 
 #[cfg(feature = "web-ui")]
@@ -570,6 +572,333 @@ pub async fn start_gateway(
     services = services.with_session_metadata(Arc::clone(&session_metadata));
     services = services.with_session_store(Arc::clone(&session_store));
 
+    // ── Hook discovery & registration ─────────────────────────────────────
+    let hook_registry = {
+        use moltis_plugins::{
+            hook_discovery::{FsHookDiscoverer, HookDiscoverer},
+            hook_eligibility::check_hook_eligibility,
+            shell_hook::ShellHookHandler,
+        };
+
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let discoverer = FsHookDiscoverer::new(FsHookDiscoverer::default_paths(&cwd));
+        let discovered = discoverer.discover().await.unwrap_or_default();
+
+        let mut registry = moltis_common::hooks::HookRegistry::new();
+
+        // Load shell hooks from discovered HOOK.md files.
+        for (parsed, source) in &discovered {
+            let meta = &parsed.metadata;
+            let elig = check_hook_eligibility(meta);
+            if !elig.eligible {
+                info!(
+                    hook = %meta.name,
+                    source = ?source,
+                    missing_os = elig.missing_os,
+                    missing_bins = ?elig.missing_bins,
+                    missing_env = ?elig.missing_env,
+                    "hook ineligible, skipping"
+                );
+                continue;
+            }
+            if let Some(ref command) = meta.command {
+                let handler = ShellHookHandler::new(
+                    meta.name.clone(),
+                    command.clone(),
+                    meta.events.clone(),
+                    std::time::Duration::from_secs(meta.timeout),
+                    meta.env.clone(),
+                );
+                registry.register(Arc::new(handler));
+            }
+        }
+
+        if !discovered.is_empty() {
+            info!(
+                "{} hook(s) discovered, {} registered",
+                discovered.len(),
+                registry.handler_names().len()
+            );
+        }
+
+        Some(Arc::new(registry))
+    };
+
+    // ── Memory system initialization ─────────────────────────────────────
+    let memory_manager: Option<Arc<moltis_memory::manager::MemoryManager>> = {
+        // Build embedding provider(s) for the fallback chain.
+        let mut embedding_providers: Vec<(
+            String,
+            Box<dyn moltis_memory::embeddings::EmbeddingProvider>,
+        )> = Vec::new();
+
+        let mem_cfg = &config.memory;
+
+        // 1. If user explicitly configured an embedding provider, use it.
+        if let Some(ref provider_name) = mem_cfg.provider {
+            match provider_name.as_str() {
+                "local" => {
+                    // Local GGUF embeddings require the `local-embeddings` feature on moltis-memory.
+                    #[cfg(feature = "local-embeddings")]
+                    {
+                        let cache_dir = mem_cfg
+                            .base_url
+                            .as_ref()
+                            .map(std::path::PathBuf::from)
+                            .unwrap_or_else(
+                                moltis_memory::embeddings_local::LocalGgufEmbeddingProvider::default_cache_dir,
+                            );
+                        match moltis_memory::embeddings_local::LocalGgufEmbeddingProvider::ensure_model(
+                            cache_dir,
+                        )
+                        .await
+                        {
+                            Ok(path) => {
+                                match moltis_memory::embeddings_local::LocalGgufEmbeddingProvider::new(
+                                    path,
+                                ) {
+                                    Ok(p) => embedding_providers.push(("local-gguf".into(), Box::new(p))),
+                                    Err(e) => warn!("memory: failed to load local GGUF model: {e}"),
+                                }
+                            },
+                            Err(e) => warn!("memory: failed to ensure local model: {e}"),
+                        }
+                    }
+                    #[cfg(not(feature = "local-embeddings"))]
+                    warn!(
+                        "memory: 'local' embedding provider requires the 'local-embeddings' feature"
+                    );
+                },
+                "ollama" | "custom" | "openai" => {
+                    let base_url = mem_cfg
+                        .base_url
+                        .clone()
+                        .unwrap_or_else(|| match provider_name.as_str() {
+                            "ollama" => "http://localhost:11434".into(),
+                            _ => "https://api.openai.com".into(),
+                        });
+                    let api_key = mem_cfg
+                        .api_key
+                        .as_ref()
+                        .map(|k| k.expose_secret().clone())
+                        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+                        .unwrap_or_default();
+                    let mut e =
+                        moltis_memory::embeddings_openai::OpenAiEmbeddingProvider::new(api_key);
+                    if base_url != "https://api.openai.com" {
+                        e = e.with_base_url(base_url);
+                    }
+                    if let Some(ref model) = mem_cfg.model {
+                        // Use a sensible default dims; the API returns the actual dims.
+                        e = e.with_model(model.clone(), 1536);
+                    }
+                    embedding_providers.push((provider_name.clone(), Box::new(e)));
+                },
+                other => warn!("memory: unknown embedding provider '{other}'"),
+            }
+        }
+
+        // 2. Auto-detect: try Ollama health check.
+        if embedding_providers.is_empty() {
+            let ollama_ok = reqwest::Client::new()
+                .get("http://localhost:11434/api/tags")
+                .timeout(std::time::Duration::from_secs(2))
+                .send()
+                .await
+                .is_ok();
+            if ollama_ok {
+                let e =
+                    moltis_memory::embeddings_openai::OpenAiEmbeddingProvider::new(String::new())
+                        .with_base_url("http://localhost:11434".into())
+                        .with_model("nomic-embed-text".into(), 768);
+                embedding_providers.push(("ollama".into(), Box::new(e)));
+                info!("memory: detected Ollama at localhost:11434");
+            }
+        }
+
+        // 3. Auto-detect: try remote API-key providers.
+        const EMBEDDING_CANDIDATES: &[(&str, &str, &str)] = &[
+            ("openai", "OPENAI_API_KEY", "https://api.openai.com"),
+            ("mistral", "MISTRAL_API_KEY", "https://api.mistral.ai/v1"),
+            (
+                "openrouter",
+                "OPENROUTER_API_KEY",
+                "https://openrouter.ai/api/v1",
+            ),
+            ("groq", "GROQ_API_KEY", "https://api.groq.com/openai"),
+            ("xai", "XAI_API_KEY", "https://api.x.ai"),
+            ("deepseek", "DEEPSEEK_API_KEY", "https://api.deepseek.com"),
+            ("cerebras", "CEREBRAS_API_KEY", "https://api.cerebras.ai/v1"),
+            ("minimax", "MINIMAX_API_KEY", "https://api.minimax.chat/v1"),
+            ("moonshot", "MOONSHOT_API_KEY", "https://api.moonshot.ai/v1"),
+            ("venice", "VENICE_API_KEY", "https://api.venice.ai/api/v1"),
+        ];
+
+        for (config_name, env_key, default_base) in EMBEDDING_CANDIDATES {
+            let key = effective_providers
+                .get(config_name)
+                .and_then(|e| e.api_key.as_ref().map(|k| k.expose_secret().clone()))
+                .or_else(|| std::env::var(env_key).ok())
+                .filter(|k| !k.is_empty());
+            if let Some(api_key) = key {
+                let base = effective_providers
+                    .get(config_name)
+                    .and_then(|e| e.base_url.clone())
+                    .unwrap_or_else(|| default_base.to_string());
+                let mut e = moltis_memory::embeddings_openai::OpenAiEmbeddingProvider::new(api_key);
+                if base != "https://api.openai.com" {
+                    e = e.with_base_url(base);
+                }
+                embedding_providers.push((config_name.to_string(), Box::new(e)));
+            }
+        }
+
+        // Build the final embedder: fallback chain, single provider, or keyword-only.
+        let embedder: Option<Box<dyn moltis_memory::embeddings::EmbeddingProvider>> =
+            if embedding_providers.is_empty() {
+                info!("memory: no embedding provider found, using keyword-only search");
+                None
+            } else {
+                let names: Vec<&str> = embedding_providers
+                    .iter()
+                    .map(|(n, _)| n.as_str())
+                    .collect();
+                if embedding_providers.len() == 1 {
+                    let (name, provider) = embedding_providers.into_iter().next().unwrap();
+                    info!(provider = %name, "memory: using single embedding provider");
+                    Some(provider)
+                } else {
+                    info!(providers = ?names, active = names[0], "memory: fallback chain configured");
+                    Some(Box::new(
+                        moltis_memory::embeddings_fallback::FallbackEmbeddingProvider::new(
+                            embedding_providers,
+                        ),
+                    ))
+                }
+            };
+
+        let memory_db_path = data_dir.join("memory.db");
+        let memory_db_url = format!("sqlite:{}?mode=rwc", memory_db_path.display());
+        match sqlx::SqlitePool::connect(&memory_db_url).await {
+            Ok(memory_pool) => {
+                if let Err(e) = moltis_memory::schema::run_migrations(&memory_pool).await {
+                    tracing::warn!("memory migration failed: {e}");
+                    None
+                } else {
+                    let cwd = std::env::current_dir().unwrap_or_default();
+                    let home_memory = directories::ProjectDirs::from("", "", "moltis")
+                        .map(|d| d.data_dir().join("memory"))
+                        .unwrap_or_else(|| std::path::PathBuf::from(".moltis/memory"));
+                    let workspace_memory = cwd.join("memory");
+
+                    let config = moltis_memory::config::MemoryConfig {
+                        db_path: memory_db_path.to_string_lossy().into(),
+                        memory_dirs: vec![workspace_memory, home_memory],
+                        ..Default::default()
+                    };
+
+                    let store = Box::new(moltis_memory::store_sqlite::SqliteMemoryStore::new(
+                        memory_pool,
+                    ));
+                    let watch_dirs = config.memory_dirs.clone();
+                    let manager = Arc::new(if let Some(embedder) = embedder {
+                        moltis_memory::manager::MemoryManager::new(config, store, embedder)
+                    } else {
+                        moltis_memory::manager::MemoryManager::keyword_only(config, store)
+                    });
+
+                    // Initial sync + periodic re-sync (15min with watcher, 5min without).
+                    let sync_manager = Arc::clone(&manager);
+                    tokio::spawn(async move {
+                        match sync_manager.sync().await {
+                            Ok(report) => info!(
+                                updated = report.files_updated,
+                                unchanged = report.files_unchanged,
+                                removed = report.files_removed,
+                                errors = report.errors,
+                                cache_hits = report.cache_hits,
+                                cache_misses = report.cache_misses,
+                                "memory: initial sync complete"
+                            ),
+                            Err(e) => tracing::warn!("memory: initial sync failed: {e}"),
+                        }
+
+                        // Start file watcher for real-time sync (if feature enabled).
+                        #[cfg(feature = "file-watcher")]
+                        {
+                            let watcher_manager = Arc::clone(&sync_manager);
+                            match moltis_memory::watcher::MemoryFileWatcher::start(watch_dirs) {
+                                Ok((_watcher, mut rx)) => {
+                                    info!("memory: file watcher started");
+                                    tokio::spawn(async move {
+                                        while let Some(event) = rx.recv().await {
+                                            let path = match &event {
+                                                moltis_memory::watcher::WatchEvent::Created(p)
+                                                | moltis_memory::watcher::WatchEvent::Modified(p) => {
+                                                    Some(p.clone())
+                                                },
+                                                moltis_memory::watcher::WatchEvent::Removed(p) => {
+                                                    // For removed files, trigger a full sync
+                                                    if let Err(e) = watcher_manager.sync().await {
+                                                        tracing::warn!(
+                                                            path = %p.display(),
+                                                            error = %e,
+                                                            "memory: watcher sync (removal) failed"
+                                                        );
+                                                    }
+                                                    None
+                                                },
+                                            };
+                                            if let Some(path) = path
+                                                && let Err(e) =
+                                                    watcher_manager.sync_path(&path).await
+                                            {
+                                                tracing::warn!(
+                                                    path = %path.display(),
+                                                    error = %e,
+                                                    "memory: watcher sync_path failed"
+                                                );
+                                            }
+                                        }
+                                    });
+                                },
+                                Err(e) => {
+                                    tracing::warn!("memory: failed to start file watcher: {e}");
+                                },
+                            }
+                        }
+
+                        // Periodic full sync as safety net (longer interval with watcher).
+                        #[cfg(feature = "file-watcher")]
+                        let interval_secs = 900; // 15 minutes
+                        #[cfg(not(feature = "file-watcher"))]
+                        let interval_secs = 300; // 5 minutes
+
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                        interval.tick().await; // skip first immediate tick
+                        loop {
+                            interval.tick().await;
+                            if let Err(e) = sync_manager.sync().await {
+                                tracing::warn!("memory: periodic sync failed: {e}");
+                            }
+                        }
+                    });
+
+                    info!(
+                        embeddings = manager.has_embeddings(),
+                        "memory system initialized"
+                    );
+                    Some(manager)
+                }
+            },
+            Err(e) => {
+                tracing::warn!("memory: failed to open memory.db: {e}");
+                None
+            },
+        }
+    };
+
     let is_localhost = matches!(bind, "127.0.0.1" | "::1" | "localhost");
     let state = GatewayState::with_options(
         resolved_auth,
@@ -579,6 +908,8 @@ pub async fn start_gateway(
         Some(Arc::clone(&credential_store)),
         webauthn_state,
         is_localhost,
+        hook_registry.clone(),
+        memory_manager.clone(),
     );
 
     // Generate a one-time setup code if setup is pending and auth is not disabled.
@@ -615,15 +946,29 @@ pub async fn start_gateway(
         {
             tool_registry.register(Box::new(t));
         }
-        let live_chat = Arc::new(
-            LiveChatService::new(
-                Arc::clone(&registry),
-                Arc::clone(&state),
-                Arc::clone(&session_store),
-                Arc::clone(&session_metadata),
-            )
-            .with_tools(tool_registry),
-        );
+
+        // Register memory tools if the memory system is available.
+        if let Some(ref mm) = memory_manager {
+            tool_registry.register(Box::new(moltis_memory::tools::MemorySearchTool::new(
+                Arc::clone(mm),
+            )));
+            tool_registry.register(Box::new(moltis_memory::tools::MemoryGetTool::new(
+                Arc::clone(mm),
+            )));
+        }
+        let mut chat_service = LiveChatService::new(
+            Arc::clone(&registry),
+            Arc::clone(&state),
+            Arc::clone(&session_store),
+            Arc::clone(&session_metadata),
+        )
+        .with_tools(tool_registry);
+
+        if let Some(ref hooks) = state.hook_registry {
+            chat_service = chat_service.with_hooks_arc(Arc::clone(hooks));
+        }
+
+        let live_chat = Arc::new(chat_service);
         state.set_chat(live_chat).await;
     }
 
@@ -782,6 +1127,16 @@ pub async fn start_gateway(
         info!("│  {:<w$}│", line, w = width - 2);
     }
     info!("└{}┘", "─".repeat(width));
+
+    // Dispatch GatewayStart hook.
+    if let Some(ref hooks) = state.hook_registry {
+        let payload = moltis_common::hooks::HookPayload::GatewayStart {
+            address: addr.to_string(),
+        };
+        if let Err(e) = hooks.dispatch(&payload).await {
+            tracing::warn!("GatewayStart hook dispatch failed: {e}");
+        }
+    }
 
     // Spawn tick timer.
     let tick_state = Arc::clone(&state);
