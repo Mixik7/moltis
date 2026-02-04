@@ -74,17 +74,56 @@ jobs:
           BUILD_TARGET: ${{ matrix.target }}
         run: cargo deb -p moltis-cli --no-build --target "$BUILD_TARGET"
 
+      - name: Import GPG key
+        if: startsWith(github.ref, 'refs/tags/') && env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "GPG_TTY=$(tty)" >> "$GITHUB_ENV"
+
+      - name: Sign .deb package
+        if: startsWith(github.ref, 'refs/tags/') && env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          # Install dpkg-sig for signing
+          sudo apt-get install -y dpkg-sig
+          # Sign the .deb package
+          for deb in target/"$BUILD_TARGET"/debian/*.deb; do
+            echo "$GPG_PASSPHRASE" | dpkg-sig --sign builder -g "--batch --pinentry-mode loopback --passphrase-fd 0" "$deb"
+          done
+
+      - name: Generate checksums
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          cd target/"$BUILD_TARGET"/debian
+          for deb in *.deb; do
+            sha256sum "$deb" > "${deb}.sha256"
+            sha512sum "$deb" > "${deb}.sha512"
+          done
+
       - name: Upload .deb artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: moltis-${{ matrix.arch }}.deb
-          path: target/${{ matrix.target }}/debian/*.deb
+          path: |
+            target/${{ matrix.target }}/debian/*.deb
+            target/${{ matrix.target }}/debian/*.sha256
+            target/${{ matrix.target }}/debian/*.sha512
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
-          files: target/${{ matrix.target }}/debian/*.deb
+          files: |
+            target/${{ matrix.target }}/debian/*.deb
+            target/${{ matrix.target }}/debian/*.sha256
+            target/${{ matrix.target }}/debian/*.sha512
 
   build-rpm:
     needs: zizmor
@@ -144,17 +183,59 @@ jobs:
           BUILD_TARGET: ${{ matrix.target }}
         run: cargo generate-rpm -p crates/cli --target "$BUILD_TARGET"
 
+      - name: Import GPG key
+        if: startsWith(github.ref, 'refs/tags/') && env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          # Export the key ID for RPM signing
+          GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | head -1 | awk '{print $2}' | cut -d'/' -f2)
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> "$GITHUB_ENV"
+
+      - name: Sign .rpm package
+        if: startsWith(github.ref, 'refs/tags/') && env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          # Configure RPM to use our GPG key
+          echo "%_gpg_name $GPG_KEY_ID" >> ~/.rpmmacros
+          echo "%__gpg_sign_cmd %{__gpg} gpg --batch --no-armor --pinentry-mode loopback --passphrase-fd 0 -u \"%{_gpg_name}\" -sbo %{__signature_filename} %{__plaintext_filename}" >> ~/.rpmmacros
+          # Sign each RPM
+          for rpm in target/"$BUILD_TARGET"/generate-rpm/*.rpm; do
+            echo "$GPG_PASSPHRASE" | rpm --addsign "$rpm"
+          done
+
+      - name: Generate checksums
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          cd target/"$BUILD_TARGET"/generate-rpm
+          for rpm in *.rpm; do
+            sha256sum "$rpm" > "${rpm}.sha256"
+            sha512sum "$rpm" > "${rpm}.sha512"
+          done
+
       - name: Upload .rpm artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: moltis-${{ matrix.arch }}.rpm
-          path: target/${{ matrix.target }}/generate-rpm/*.rpm
+          path: |
+            target/${{ matrix.target }}/generate-rpm/*.rpm
+            target/${{ matrix.target }}/generate-rpm/*.sha256
+            target/${{ matrix.target }}/generate-rpm/*.sha512
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
-          files: target/${{ matrix.target }}/generate-rpm/*.rpm
+          files: |
+            target/${{ matrix.target }}/generate-rpm/*.rpm
+            target/${{ matrix.target }}/generate-rpm/*.sha256
+            target/${{ matrix.target }}/generate-rpm/*.sha512
 
   build-arch:
     needs: zizmor
@@ -226,17 +307,47 @@ jobs:
           cd "$PKG_DIR"
           fakeroot -- tar --zstd -cf "../moltis-${VERSION}-1-${MATRIX_ARCH}.pkg.tar.zst" .PKGINFO usr/
 
+      - name: Import GPG key
+        if: startsWith(github.ref, 'refs/tags/') && env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Sign .pkg.tar.zst and generate checksums
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MATRIX_ARCH: ${{ matrix.arch }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          PKG="moltis-${VERSION}-1-${MATRIX_ARCH}.pkg.tar.zst"
+          # Generate checksums
+          sha256sum "$PKG" > "${PKG}.sha256"
+          sha512sum "$PKG" > "${PKG}.sha512"
+          # Sign with GPG if key is available
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            echo "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --detach-sign --armor "$PKG"
+          fi
+
       - name: Upload .pkg.tar.zst artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: moltis-${{ matrix.arch }}.pkg.tar.zst
-          path: "*.pkg.tar.zst"
+          path: |
+            *.pkg.tar.zst
+            *.pkg.tar.zst.asc
+            *.pkg.tar.zst.sha256
+            *.pkg.tar.zst.sha512
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
-          files: "*.pkg.tar.zst"
+          files: |
+            *.pkg.tar.zst
+            *.pkg.tar.zst.asc
+            *.pkg.tar.zst.sha256
+            *.pkg.tar.zst.sha512
 
   build-appimage:
     needs: zizmor
@@ -328,17 +439,47 @@ jobs:
           # Package - use --appimage-extract-and-run to avoid FUSE requirement in CI
           ARCH="$MATRIX_ARCH" ./appimagetool --appimage-extract-and-run "$APP_DIR" "moltis-${VERSION}-${MATRIX_ARCH}.AppImage"
 
+      - name: Import GPG key
+        if: startsWith(github.ref, 'refs/tags/') && env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Sign AppImage and generate checksums
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MATRIX_ARCH: ${{ matrix.arch }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          APPIMAGE="moltis-${VERSION}-${MATRIX_ARCH}.AppImage"
+          # Generate checksums
+          sha256sum "$APPIMAGE" > "${APPIMAGE}.sha256"
+          sha512sum "$APPIMAGE" > "${APPIMAGE}.sha512"
+          # Sign with GPG if key is available
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            echo "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --detach-sign --armor "$APPIMAGE"
+          fi
+
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: moltis-${{ matrix.arch }}.AppImage
-          path: "*.AppImage"
+          path: |
+            *.AppImage
+            *.AppImage.asc
+            *.AppImage.sha256
+            *.AppImage.sha512
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
-          files: "*.AppImage"
+          files: |
+            *.AppImage
+            *.AppImage.asc
+            *.AppImage.sha256
+            *.AppImage.sha512
 
   build-snap:
     needs: zizmor
@@ -355,17 +496,30 @@ jobs:
       - uses: snapcore/action-build@b391f430cb2650fd359ed4d2cfe88b2c481800e0 # v1
         id: build-snap
 
+      - name: Generate checksums
+        env:
+          SNAP_PATH: ${{ steps.build-snap.outputs.snap }}
+        run: |
+          sha256sum "$SNAP_PATH" > "${SNAP_PATH}.sha256"
+          sha512sum "$SNAP_PATH" > "${SNAP_PATH}.sha512"
+
       - name: Upload Snap artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: moltis.snap
-          path: ${{ steps.build-snap.outputs.snap }}
+          path: |
+            ${{ steps.build-snap.outputs.snap }}
+            ${{ steps.build-snap.outputs.snap }}.sha256
+            ${{ steps.build-snap.outputs.snap }}.sha512
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
-          files: ${{ steps.build-snap.outputs.snap }}
+          files: |
+            ${{ steps.build-snap.outputs.snap }}
+            ${{ steps.build-snap.outputs.snap }}.sha256
+            ${{ steps.build-snap.outputs.snap }}.sha512
 
   build-homebrew-binaries:
     needs: zizmor
@@ -424,17 +578,47 @@ jobs:
           cp "target/$BUILD_TARGET/release/moltis" moltis
           tar czf "moltis-${VERSION}-${BUILD_TARGET}.tar.gz" moltis
 
+      - name: Import GPG key
+        if: startsWith(github.ref, 'refs/tags/') && env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Sign tarball and generate checksums
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_TARGET: ${{ matrix.target }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          TARBALL="moltis-${VERSION}-${BUILD_TARGET}.tar.gz"
+          # Generate checksums
+          sha256sum "$TARBALL" > "${TARBALL}.sha256"
+          sha512sum "$TARBALL" > "${TARBALL}.sha512"
+          # Sign with GPG if key is available
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            echo "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --detach-sign --armor "$TARBALL"
+          fi
+
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: moltis-${{ matrix.target }}
-          path: "*.tar.gz"
+          path: |
+            *.tar.gz
+            *.tar.gz.asc
+            *.tar.gz.sha256
+            *.tar.gz.sha512
 
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
-          files: "*.tar.gz"
+          files: |
+            *.tar.gz
+            *.tar.gz.asc
+            *.tar.gz.sha256
+            *.tar.gz.sha512
 
   build-docker:
     needs: zizmor
@@ -443,6 +627,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # Required for cosign signing
+      attestations: write # Required for provenance attestations
+
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -454,6 +643,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3.8.1
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
@@ -474,6 +666,7 @@ jobs:
             type=sha
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6
         with:
           context: .
@@ -483,3 +676,87 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Enable SBOM and provenance attestations
+          sbom: true
+          provenance: mode=max
+
+      - name: Sign container image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          # Sign each tag with cosign using keyless signing (Sigstore)
+          images=""
+          for tag in ${TAGS}; do
+            images+="${tag}@${DIGEST} "
+          done
+          cosign sign --yes ${images}
+
+      - name: Verify container signature
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "ghcr.io/${{ github.repository }}@${DIGEST}"
+
+  # Generate SBOM for the entire release
+  generate-sbom:
+    needs:
+      - build-deb
+      - build-rpm
+      - build-arch
+      - build-appimage
+      - build-snap
+      - build-homebrew-binaries
+      - build-docker
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    name: Generate Release SBOM
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-sbom
+        run: cargo install cargo-sbom
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          cargo sbom --output-format cyclonedx_json_1_4 > moltis-sbom.cdx.json
+          cargo sbom --output-format spdx_json_2_3 > moltis-sbom.spdx.json
+
+      - name: Import GPG key
+        if: env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Sign SBOM files
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          for sbom in moltis-sbom.cdx.json moltis-sbom.spdx.json; do
+            sha256sum "$sbom" > "${sbom}.sha256"
+            if [ -n "$GPG_PRIVATE_KEY" ]; then
+              echo "$GPG_PASSPHRASE" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --detach-sign --armor "$sbom"
+            fi
+          done
+
+      - name: Upload SBOM to release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        with:
+          files: |
+            moltis-sbom.cdx.json
+            moltis-sbom.cdx.json.asc
+            moltis-sbom.cdx.json.sha256
+            moltis-sbom.spdx.json
+            moltis-sbom.spdx.json.asc
+            moltis-sbom.spdx.json.sha256
