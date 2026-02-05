@@ -72,6 +72,10 @@ pub fn context_window_for_model(model_id: &str) -> u32 {
     if model_id.starts_with("kimi-") {
         return 128_000;
     }
+    // xAI Grok models: 131k (≈128k).
+    if model_id.starts_with("grok-") {
+        return 131_072;
+    }
     // Default fallback.
     200_000
 }
@@ -122,6 +126,16 @@ const MINIMAX_MODELS: &[(&str, &str)] = &[("MiniMax-M2.1", "MiniMax M2.1")];
 
 /// Known Moonshot models.
 const MOONSHOT_MODELS: &[(&str, &str)] = &[("kimi-k2.5", "Kimi K2.5")];
+
+/// Known xAI Grok models.
+const GROK_MODELS: &[(&str, &str)] = &[
+    ("grok-3", "Grok 3"),
+    ("grok-3-fast", "Grok 3 Fast"),
+    ("grok-3-mini", "Grok 3 Mini"),
+    ("grok-3-mini-fast", "Grok 3 Mini Fast"),
+    ("grok-2", "Grok 2"),
+    ("grok-2-mini", "Grok 2 Mini"),
+];
 
 /// OpenAI-compatible provider definition for table-driven registration.
 struct OpenAiCompatDef {
@@ -181,6 +195,13 @@ const OPENAI_COMPAT_PROVIDERS: &[OpenAiCompatDef] = &[
         env_base_url_key: "OLLAMA_BASE_URL",
         default_base_url: "http://127.0.0.1:11434/v1",
         models: &[],
+    },
+    OpenAiCompatDef {
+        config_name: "xai",
+        env_key: "XAI_API_KEY",
+        env_base_url_key: "XAI_BASE_URL",
+        default_base_url: "https://api.x.ai/v1",
+        models: GROK_MODELS,
     },
 ];
 
@@ -846,6 +867,9 @@ mod tests {
             1_000_000
         );
         assert_eq!(super::context_window_for_model("kimi-k2.5"), 128_000);
+        assert_eq!(super::context_window_for_model("grok-3"), 131_072);
+        assert_eq!(super::context_window_for_model("grok-3-mini"), 131_072);
+        assert_eq!(super::context_window_for_model("grok-2"), 131_072);
     }
 
     #[test]
@@ -885,6 +909,7 @@ mod tests {
         assert!(!CEREBRAS_MODELS.is_empty());
         assert!(!MINIMAX_MODELS.is_empty());
         assert!(!MOONSHOT_MODELS.is_empty());
+        assert!(!GROK_MODELS.is_empty());
     }
 
     #[test]
@@ -896,6 +921,7 @@ mod tests {
             CEREBRAS_MODELS,
             MINIMAX_MODELS,
             MOONSHOT_MODELS,
+            GROK_MODELS,
         ] {
             let mut ids: Vec<&str> = models.iter().map(|(id, _)| *id).collect();
             ids.sort();
@@ -1047,6 +1073,71 @@ mod tests {
 
         let reg = ProviderRegistry::from_env_with_config(&config);
         assert!(reg.list_models().iter().any(|m| m.provider == "moonshot"));
+    }
+
+    #[test]
+    fn xai_registers_with_api_key() {
+        let mut config = ProvidersConfig::default();
+        config
+            .providers
+            .insert("xai".into(), moltis_config::schema::ProviderEntry {
+                api_key: Some(secrecy::Secret::new("xai-test-key".into())),
+                ..Default::default()
+            });
+
+        let reg = ProviderRegistry::from_env_with_config(&config);
+        let xai_models: Vec<_> = reg
+            .list_models()
+            .iter()
+            .filter(|m| m.provider == "xai")
+            .collect();
+        assert!(
+            !xai_models.is_empty(),
+            "expected xAI Grok models to be registered"
+        );
+        for m in &xai_models {
+            assert!(reg.get(&m.id).is_some());
+            assert_eq!(reg.get(&m.id).unwrap().name(), "xai");
+            // xAI provider should support tools (uses OpenAI-compatible API)
+            assert!(reg.get(&m.id).unwrap().supports_tools());
+        }
+    }
+
+    #[test]
+    fn xai_specific_model_override() {
+        let mut config = ProvidersConfig::default();
+        config
+            .providers
+            .insert("xai".into(), moltis_config::schema::ProviderEntry {
+                api_key: Some(secrecy::Secret::new("xai-test-key".into())),
+                model: Some("grok-3-mini".into()),
+                ..Default::default()
+            });
+
+        let reg = ProviderRegistry::from_env_with_config(&config);
+        let xai_models: Vec<_> = reg
+            .list_models()
+            .iter()
+            .filter(|m| m.provider == "xai")
+            .collect();
+        // Should only have the one specified model
+        assert_eq!(xai_models.len(), 1);
+        assert_eq!(xai_models[0].id, "grok-3-mini");
+    }
+
+    #[test]
+    fn xai_custom_base_url() {
+        let mut config = ProvidersConfig::default();
+        config
+            .providers
+            .insert("xai".into(), moltis_config::schema::ProviderEntry {
+                api_key: Some(secrecy::Secret::new("xai-test-key".into())),
+                base_url: Some("https://custom.xai.example.com/v1".into()),
+                ..Default::default()
+            });
+
+        let reg = ProviderRegistry::from_env_with_config(&config);
+        assert!(reg.list_models().iter().any(|m| m.provider == "xai"));
     }
 
     #[test]
