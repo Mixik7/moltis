@@ -463,11 +463,12 @@ function AddSlackModal() {
     <div class="channel-form">
       <div class="channel-card">
         <span class="text-xs font-medium text-[var(--text-strong)]">How to create a Slack app</span>
-        <div class="text-xs text-[var(--muted)] channel-help">1. Go to <a href="https://api.slack.com/apps" target="_blank" class="text-[var(--accent)]" style="text-decoration:underline;">api.slack.com/apps</a> and create a new app</div>
-        <div class="text-xs text-[var(--muted)]">2. Enable Socket Mode and create an app-level token with connections:write</div>
-        <div class="text-xs text-[var(--muted)]">3. Add Bot Token Scopes: app_mentions:read, chat:write, im:history, im:read, im:write, users:read</div>
-        <div class="text-xs text-[var(--muted)]">4. Install to workspace and copy both tokens below</div>
-        <div class="text-xs text-[var(--muted)] channel-help" style="margin-top:2px;">See the <a href="https://api.slack.com/apis/socket-mode" target="_blank" class="text-[var(--accent)]" style="text-decoration:underline;">Socket Mode docs</a> for more details.</div>
+        <div class="text-xs text-[var(--muted)] channel-help">1. Go to <a href="https://api.slack.com/apps" target="_blank" class="text-[var(--accent)]" style="text-decoration:underline;">api.slack.com/apps</a> and create a new app "from scratch"</div>
+        <div class="text-xs text-[var(--muted)]">2. Enable <b>Socket Mode</b> and generate an App-Level Token with <code>connections:write</code> scope</div>
+        <div class="text-xs text-[var(--muted)]">3. In <b>OAuth & Permissions</b>, add Bot Token Scopes: chat:write, im:write, channels:history, im:history, users:read, reactions:read</div>
+        <div class="text-xs text-[var(--muted)]">4. In <b>Event Subscriptions</b>, subscribe to: message.im, app_mention, reaction_added</div>
+        <div class="text-xs text-[var(--muted)]">5. Install to workspace and copy the Bot Token (xoxb-) and App Token (xapp-)</div>
+        <div class="text-xs text-[var(--muted)] channel-help" style="margin-top:2px;">See the <a href="https://docs.openclaw.ai/channels/slack" target="_blank" class="text-[var(--accent)]" style="text-decoration:underline;">OpenClaw Slack docs</a> for the full setup guide.</div>
       </div>
       <label class="text-xs text-[var(--muted)]">Workspace name (identifier)</label>
       <input data-field="accountId" type="text" placeholder="e.g. my-company" style=${inputStyle} />
@@ -583,10 +584,11 @@ function AddDiscordModal() {
       <div class="channel-card">
         <span class="text-xs font-medium text-[var(--text-strong)]">How to create a Discord bot</span>
         <div class="text-xs text-[var(--muted)] channel-help">1. Go to <a href="https://discord.com/developers/applications" target="_blank" class="text-[var(--accent)]" style="text-decoration:underline;">Discord Developer Portal</a> and create a new application</div>
-        <div class="text-xs text-[var(--muted)]">2. Go to Bot section and create a bot, copy the token</div>
-        <div class="text-xs text-[var(--muted)]">3. Enable MESSAGE CONTENT INTENT in the bot settings</div>
-        <div class="text-xs text-[var(--muted)]">4. Go to OAuth2 > URL Generator, select bot scope with Send Messages permission</div>
-        <div class="text-xs text-[var(--muted)] channel-help" style="margin-top:2px;">See the <a href="https://discord.com/developers/docs/getting-started" target="_blank" class="text-[var(--accent)]" style="text-decoration:underline;">Discord docs</a> for more details.</div>
+        <div class="text-xs text-[var(--muted)]">2. Go to <b>Bot</b> section, create a bot and copy the token</div>
+        <div class="text-xs text-[var(--muted)]">3. Enable <b>MESSAGE CONTENT INTENT</b> and <b>SERVER MEMBERS INTENT</b> (both required)</div>
+        <div class="text-xs text-[var(--muted)]">4. Go to <b>OAuth2 > URL Generator</b>, select <code>bot</code> + <code>applications.commands</code> scopes</div>
+        <div class="text-xs text-[var(--muted)]">5. Select permissions: View Channels, Send Messages, Read Message History, Embed Links</div>
+        <div class="text-xs text-[var(--muted)] channel-help" style="margin-top:2px;">See the <a href="https://docs.openclaw.ai/channels/discord" target="_blank" class="text-[var(--accent)]" style="text-decoration:underline;">OpenClaw Discord docs</a> for the full setup guide.</div>
       </div>
       <label class="text-xs text-[var(--muted)]">Bot name (identifier)</label>
       <input data-field="accountId" type="text" placeholder="e.g. my-assistant" style=${inputStyle} />
