@@ -85,3 +85,93 @@ memory_limit = "512M"
 cpu_quota = 1.0
 pids_max = 256
 ```
+
+## Network Policy
+
+Control network access for sandboxed containers with the `network` setting:
+
+```toml
+[tools.exec.sandbox]
+network = "blocked"   # default — no network access
+# network = "trusted" # filtered access via domain allowlist
+# network = "open"    # unrestricted network access
+```
+
+### Blocked (default)
+
+Containers run with `--network=none`. No outbound connections are possible.
+This is the safest option for untrusted workloads.
+
+### Trusted
+
+Containers join an isolated Docker network where the only external gateway is
+a filtering HTTP CONNECT proxy. Outbound connections are checked against a
+domain allowlist:
+
+```toml
+[tools.exec.sandbox]
+network = "trusted"
+trusted_domains = [
+    "github.com",
+    "*.github.com",
+    "api.openai.com",
+    "registry.npmjs.org",
+]
+```
+
+**Domain patterns:**
+
+| Pattern | Matches |
+|---------|---------|
+| `github.com` | Exactly `github.com` |
+| `*.github.com` | Any subdomain: `api.github.com`, `raw.github.com`, plus `github.com` itself |
+| `*` | Everything (effectively disables filtering) |
+
+**Interactive approval:** When a container tries to connect to a domain not in
+the allowlist, the gateway broadcasts a `network.domain.requested` event. The
+web UI shows a toast notification where operators can approve or deny the
+request. Approved domains are remembered for the session.
+
+**How it works:**
+
+1. Containers are launched on an isolated Docker network (`moltis-trusted-net`)
+2. Environment variables `HTTP_PROXY` and `HTTPS_PROXY` point to the gateway's
+   built-in proxy (port 18791)
+3. The proxy intercepts all HTTP/HTTPS traffic and checks domains against the
+   allowlist before forwarding
+
+### Open
+
+Containers use the default Docker bridge network with unrestricted internet
+access. Use this only for trusted workloads or when network access is required
+and domain filtering is impractical.
+
+```toml
+[tools.exec.sandbox]
+network = "open"
+```
+
+### Backward compatibility
+
+The legacy `no_network` boolean is still accepted:
+
+```toml
+no_network = true   # equivalent to network = "blocked"
+no_network = false  # equivalent to network = "open"
+```
+
+## Metrics
+
+When the `metrics` feature is enabled, the sandbox and network proxy expose:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `domain_checks_total` | counter | Domain filter checks by result and source |
+| `domain_approval_requests_total` | counter | Interactive approval requests |
+| `domain_approval_decisions_total` | counter | Approval outcomes |
+| `domain_approval_wait_duration_seconds` | histogram | Time waiting for operator decision |
+| `proxy_connections_total` | counter | Total proxy connections |
+| `proxy_connections_active` | gauge | Currently active proxy connections |
+| `proxy_requests_total` | counter | Requests by method and result |
+| `proxy_bytes_transferred_total` | counter | Bytes proxied by direction |
+| `proxy_tunnel_duration_seconds` | histogram | HTTPS tunnel lifetime |
