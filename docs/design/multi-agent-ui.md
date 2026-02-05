@@ -370,6 +370,7 @@ New events for multi-agent UI updates:
 | `node.connected` | `{ nodeId, name, url }` | Remote node connected |
 | `node.disconnected` | `{ nodeId, reason }` | Remote node disconnected |
 | `swarm.progress` | `{ swarmId, completed, total }` | Swarm task progress |
+| `cross_session_send` | `{ event, targetSession, messagePreview, waitForReply }` | Cross-session message sent (channel: `sessions`) |
 
 ## Accessibility Considerations
 

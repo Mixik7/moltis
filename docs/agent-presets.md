@@ -106,6 +106,30 @@ tools.deny = ["exec"]
 The `spawn_agent` tool is **always** excluded from sub-agents to prevent
 infinite recursion, regardless of policy settings.
 
+### Session Tools
+
+The session tools enable inter-agent communication. Include them in presets
+based on the agent's role:
+
+| Tool | Purpose | Typical Use |
+|------|---------|-------------|
+| `sessions_list` | Discover available sessions | Coordinators, observers |
+| `sessions_history` | Read messages from sessions | Coordinators, observers |
+| `sessions_send` | Send messages to sessions | Coordinators only |
+
+**Coordinator pattern** (full access):
+```toml
+tools.allow = ["sessions_list", "sessions_history", "sessions_send"]
+```
+
+**Observer pattern** (read-only):
+```toml
+tools.allow = ["sessions_list", "sessions_history"]
+tools.deny = ["sessions_send"]
+```
+
+See [Session Tools](session-tools.md) for detailed documentation.
+
 ## System Prompt Construction
 
 When a preset is used, the sub-agent's system prompt is built as follows:
@@ -208,6 +232,52 @@ Analyze code for:
 - Style and maintainability
 
 Never modify files. Provide actionable feedback with specific line references.
+"""
+```
+
+### Coordinator (Cross-Session Communication)
+
+For orchestrating multiple agents via session tools:
+
+```toml
+[agents.presets.coordinator]
+identity.name = "orchestrator"
+identity.emoji = "🎯"
+identity.vibe = "strategic and organized"
+model = "anthropic/claude-sonnet-4-20250514"
+tools.allow = [
+  "sessions_list",
+  "sessions_history",
+  "sessions_send",
+  "spawn_agent",
+  "read_file",
+  "glob",
+  "grep"
+]
+system_prompt_suffix = """
+You coordinate work across multiple agents. Use session tools to:
+- List available sessions with sessions_list
+- Check progress with sessions_history
+- Delegate tasks with sessions_send
+
+Prefer sessions_send for ongoing collaboration and spawn_agent for one-off tasks.
+"""
+```
+
+### Worker (Read-Only Session Access)
+
+For agents that can observe but not send to other sessions:
+
+```toml
+[agents.presets.worker]
+identity.name = "worker"
+identity.emoji = "⚙️"
+model = "anthropic/claude-sonnet-4-20250514"
+tools.allow = ["read_file", "write_file", "exec", "sessions_list", "sessions_history"]
+tools.deny = ["sessions_send", "spawn_agent"]
+system_prompt_suffix = """
+Focus on your assigned task. You can view other sessions for context
+but cannot send messages to them. Report results back to your caller.
 """
 ```
 

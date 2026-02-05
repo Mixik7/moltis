@@ -25,7 +25,12 @@ use {moltis_channels::ChannelPlugin, moltis_protocol::TICK_INTERVAL_MS};
 
 use moltis_agents::providers::ProviderRegistry;
 
-use moltis_tools::{approval::ApprovalManager, exec::EnvVarProvider, image_cache::ImageBuilder};
+use moltis_tools::{
+    approval::ApprovalManager,
+    exec::EnvVarProvider,
+    image_cache::ImageBuilder,
+    sessions::{SendToSessionFn, SessionsHistoryTool, SessionsListTool, SessionsSendTool},
+};
 
 use {
     moltis_projects::ProjectStore,
@@ -1129,6 +1134,70 @@ pub async fn start_gateway(
                 Arc::clone(mm),
             )));
         }
+
+        // Register session tools for inter-agent communication.
+        // sessions_list and sessions_history are always available.
+        tool_registry.register(Box::new(SessionsListTool::new(Arc::clone(
+            &session_metadata,
+        ))));
+        tool_registry.register(Box::new(SessionsHistoryTool::new(
+            Arc::clone(&session_store),
+            Arc::clone(&session_metadata),
+        )));
+
+        // sessions_send requires a callback to route messages through the chat service.
+        // The callback captures the state and lazily accesses the chat service.
+        let state_for_send = Arc::clone(&state);
+        let send_to_session: SendToSessionFn =
+            Arc::new(move |session_key, message, wait_for_reply| {
+                let state = Arc::clone(&state_for_send);
+                Box::pin(async move {
+                    // Broadcast event for cross-session activity visibility.
+                    let state_for_broadcast = Arc::clone(&state);
+                    let key_clone = session_key.clone();
+                    let msg_preview = message.chars().take(100).collect::<String>();
+                    tokio::spawn(async move {
+                        broadcast(
+                            &state_for_broadcast,
+                            "sessions",
+                            serde_json::json!({
+                                "event": "cross_session_send",
+                                "targetSession": key_clone,
+                                "messagePreview": msg_preview,
+                                "waitForReply": wait_for_reply,
+                            }),
+                            BroadcastOpts::default(),
+                        )
+                        .await;
+                    });
+
+                    let chat = state.chat().await;
+                    let params = serde_json::json!({
+                        "text": message,
+                        "_session_key": session_key,
+                    });
+
+                    if wait_for_reply {
+                        // Use send_sync for synchronous request-response.
+                        let result = chat
+                            .send_sync(params)
+                            .await
+                            .map_err(|e| anyhow::anyhow!("{e}"))?;
+                        // Extract the response text from the result.
+                        Ok(result["text"].as_str().unwrap_or("").to_string())
+                    } else {
+                        // Fire-and-forget: just queue the message.
+                        chat.send(params)
+                            .await
+                            .map_err(|e| anyhow::anyhow!("{e}"))?;
+                        Ok(String::new())
+                    }
+                })
+            });
+        tool_registry.register(Box::new(SessionsSendTool::new(
+            Arc::clone(&session_metadata),
+            send_to_session,
+        )));
 
         // Register spawn_agent tool for sub-agent support.
         // The tool gets a snapshot of the current registry (without itself)

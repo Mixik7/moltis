@@ -821,6 +821,8 @@ pub struct AgentPreset {
     pub timeout_secs: Option<u64>,
     /// Sandbox configuration overrides.
     pub sandbox: Option<PresetSandboxConfig>,
+    /// Session access policy for inter-agent communication.
+    pub sessions: Option<SessionAccessPolicyConfig>,
 }
 
 /// Tool policy within a preset.
@@ -864,6 +866,40 @@ pub struct PresetSandboxConfig {
     pub image: Option<String>,
     /// Network access override.
     pub no_network: Option<bool>,
+}
+
+/// Session access policy configuration for inter-agent communication.
+///
+/// Controls which sessions an agent can see and interact with via
+/// the `sessions_list`, `sessions_history`, and `sessions_send` tools.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionAccessPolicyConfig {
+    /// Only see sessions with keys matching this prefix (e.g., "agent:myagent:").
+    /// If None, no prefix filtering is applied.
+    pub key_prefix: Option<String>,
+    /// Explicit session keys this agent can access (in addition to prefix matches).
+    #[serde(default)]
+    pub allowed_keys: Vec<String>,
+    /// Whether this agent can send messages to other sessions via `sessions_send`.
+    /// Defaults to true.
+    #[serde(default = "default_true")]
+    pub can_send: bool,
+    /// Whether this agent can access sessions from other agents.
+    /// Defaults to false.
+    #[serde(default)]
+    pub cross_agent: bool,
+}
+
+impl Default for SessionAccessPolicyConfig {
+    fn default() -> Self {
+        Self {
+            key_prefix: None,
+            allowed_keys: Vec::new(),
+            can_send: true,
+            cross_agent: false,
+        }
+    }
 }
 
 /// Configuration for a single agent instance in multi-agent mode.

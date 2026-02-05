@@ -426,6 +426,25 @@ a significant piece of work, write a brief session summary to
 `prompts/session-YYYY-MM-DD-<topic>.md` capturing what was done, key decisions,
 and any open items.
 
+## Documentation Requirements
+
+Every new feature must be documented in `docs/`. Documentation should be:
+
+- **Created** when implementing a new feature (e.g., `docs/session-tools.md`
+  for session tools, `docs/agent-presets.md` for agent presets)
+- **Updated** as the feature evolves — keep docs in sync with implementation
+- **Design docs** go in `docs/design/` for architectural decisions and UI
+  mockups (e.g., `docs/design/multi-agent-architecture.md`)
+
+Documentation should include:
+- Overview and purpose of the feature
+- Configuration examples (TOML snippets)
+- API/tool usage examples
+- Comparison with alternatives when relevant
+- Implementation status and next steps
+
+When modifying existing features, check if corresponding docs need updates.
+
 ## Git Workflow
 
 Follow conventional commit format: `feat|fix|refactor|docs|test|chore(scope): description`

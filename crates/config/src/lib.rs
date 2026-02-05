@@ -17,7 +17,7 @@ pub use {
         update_config,
     },
     schema::{
-        AgentIdentity, AuthConfig, ChatConfig, MessageQueueMode, MoltisConfig, ResolvedIdentity,
-        UserProfile,
+        AgentIdentity, AgentPreset, AgentsConfig, AuthConfig, ChatConfig, MessageQueueMode,
+        MoltisConfig, ResolvedIdentity, SessionAccessPolicyConfig, UserProfile,
     },
 };
