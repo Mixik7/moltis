@@ -630,221 +630,229 @@ function AddDiscordModal() {
   </${Modal}>`;
 }
 
-// ── Edit channel modal ───────────────────────────────────────
-function EditChannelModal() {
-	var ch = editingChannel.value;
+// ── Edit channel modals (split by type to reduce complexity) ─
+var EDIT_SELECT_STYLE =
+	"font-family:var(--font-body);background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:.85rem;cursor:pointer;";
+var EDIT_TEXTAREA_STYLE =
+	"font-family:var(--font-body);resize:vertical;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:.85rem;";
+
+function parseAllowlist(form, fieldName) {
+	return form
+		.querySelector(`[data-field=${fieldName}]`)
+		.value.trim()
+		.split(/\n/)
+		.map((s) => s.trim())
+		.filter(Boolean);
+}
+
+function getModelPlaceholder() {
+	return modelsSig.value.length > 0
+		? `(default: ${modelsSig.value[0].displayName || modelsSig.value[0].id})`
+		: "(server default)";
+}
+
+function saveChannelUpdate(ch, channelType, updateConfig, editModelValue, saving, error) {
+	if (editModelValue) {
+		updateConfig.model = editModelValue;
+		var found = modelsSig.value.find((x) => x.id === editModelValue);
+		if (found?.provider) updateConfig.model_provider = found.provider;
+	}
+	sendRpc("channels.update", {
+		account_id: ch.account_id,
+		type: channelType,
+		config: updateConfig,
+	}).then((res) => {
+		saving.value = false;
+		if (res?.ok) {
+			editingChannel.value = null;
+			loadChannels();
+		} else {
+			error.value = (res?.error && (res.error.message || res.error.detail)) || "Failed to update channel.";
+		}
+	});
+}
+
+function EditTelegramModal({ ch }) {
+	var cfg = ch.config || {};
 	var error = useSignal("");
 	var saving = useSignal(false);
-	var editModel = useSignal("");
-	useEffect(() => {
-		editModel.value = ch?.config?.model || "";
-	}, [ch]);
-	if (!ch) return null;
-	var cfg = ch.config || {};
-	var channelType = ch.type || "telegram";
-	var typeLabel = channelType.charAt(0).toUpperCase() + channelType.slice(1);
+	var editModel = useSignal(cfg.model || "");
 
 	function onSave(e) {
 		e.preventDefault();
 		var form = e.target.closest(".channel-form");
 		error.value = "";
 		saving.value = true;
-
-		var updateConfig = {};
-
-		if (channelType === "telegram") {
-			var allowlist = form
-				.querySelector("[data-field=allowlist]")
-				.value.trim()
-				.split(/\n/)
-				.map((s) => s.trim())
-				.filter(Boolean);
-			updateConfig = {
-				token: cfg.token || "",
-				dm_policy: form.querySelector("[data-field=dmPolicy]").value,
-				mention_mode: form.querySelector("[data-field=mentionMode]").value,
-				allowlist: allowlist,
-			};
-		} else if (channelType === "slack") {
-			var userAllowlist = form
-				.querySelector("[data-field=userAllowlist]")
-				.value.trim()
-				.split(/\n/)
-				.map((s) => s.trim())
-				.filter(Boolean);
-			updateConfig = {
-				bot_token: cfg.bot_token || "",
-				app_token: cfg.app_token || "",
-				dm_policy: form.querySelector("[data-field=dmPolicy]").value,
-				channel_policy: form.querySelector("[data-field=channelPolicy]").value,
-				activation_mode: form.querySelector("[data-field=activationMode]").value,
-				user_allowlist: userAllowlist,
-			};
-		} else if (channelType === "discord") {
-			var userAllowlist = form
-				.querySelector("[data-field=userAllowlist]")
-				.value.trim()
-				.split(/\n/)
-				.map((s) => s.trim())
-				.filter(Boolean);
-			updateConfig = {
-				token: cfg.token || "",
-				dm_policy: form.querySelector("[data-field=dmPolicy]").value,
-				guild_policy: form.querySelector("[data-field=guildPolicy]").value,
-				mention_mode: form.querySelector("[data-field=mentionMode]").value,
-				user_allowlist: userAllowlist,
-			};
-		}
-
-		if (editModel.value) {
-			updateConfig.model = editModel.value;
-			var found = modelsSig.value.find((x) => x.id === editModel.value);
-			if (found?.provider) updateConfig.model_provider = found.provider;
-		}
-		sendRpc("channels.update", {
-			account_id: ch.account_id,
-			type: channelType,
-			config: updateConfig,
-		}).then((res) => {
-			saving.value = false;
-			if (res?.ok) {
-				editingChannel.value = null;
-				loadChannels();
-			} else {
-				error.value = (res?.error && (res.error.message || res.error.detail)) || "Failed to update channel.";
-			}
-		});
+		var updateConfig = {
+			token: cfg.token || "",
+			dm_policy: form.querySelector("[data-field=dmPolicy]").value,
+			mention_mode: form.querySelector("[data-field=mentionMode]").value,
+			allowlist: parseAllowlist(form, "allowlist"),
+		};
+		saveChannelUpdate(ch, "telegram", updateConfig, editModel.value, saving, error);
 	}
 
-	var defaultPlaceholder =
-		modelsSig.value.length > 0
-			? `(default: ${modelsSig.value[0].displayName || modelsSig.value[0].id})`
-			: "(server default)";
+	return html`<${Modal} show=${true} onClose=${() => {
+		editingChannel.value = null;
+	}} title="Edit Telegram Bot">
+    <div class="channel-form">
+      <div class="text-sm text-[var(--text-strong)]">${ch.name || ch.account_id}</div>
+      <label class="text-xs text-[var(--muted)]">DM Policy</label>
+      <select data-field="dmPolicy" style=${EDIT_SELECT_STYLE} value=${cfg.dm_policy || "open"}>
+        <option value="open">Open (anyone)</option>
+        <option value="allowlist">Allowlist only</option>
+        <option value="disabled">Disabled</option>
+      </select>
+      <label class="text-xs text-[var(--muted)]">Group Mention Mode</label>
+      <select data-field="mentionMode" style=${EDIT_SELECT_STYLE} value=${cfg.mention_mode || "mention"}>
+        <option value="mention">Must @mention bot</option>
+        <option value="always">Always respond</option>
+        <option value="none">Don't respond in groups</option>
+      </select>
+      <label class="text-xs text-[var(--muted)]">Default Model</label>
+      <${ModelSelect} models=${modelsSig.value} value=${editModel.value}
+        onChange=${(v) => {
+					editModel.value = v;
+				}}
+        placeholder=${getModelPlaceholder()} />
+      <label class="text-xs text-[var(--muted)]">DM Allowlist (one username per line)</label>
+      <textarea data-field="allowlist" rows="3" style=${EDIT_TEXTAREA_STYLE}>${(cfg.allowlist || []).join("\n")}</textarea>
+      ${error.value && html`<div class="text-xs text-[var(--error)] channel-error" style="display:block;">${error.value}</div>`}
+      <button class="provider-btn" onClick=${onSave} disabled=${saving.value}>
+        ${saving.value ? "Saving\u2026" : "Save Changes"}
+      </button>
+    </div>
+  </${Modal}>`;
+}
 
-	var selectStyle =
-		"font-family:var(--font-body);background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:.85rem;cursor:pointer;";
+function EditSlackModal({ ch }) {
+	var cfg = ch.config || {};
+	var error = useSignal("");
+	var saving = useSignal(false);
+	var editModel = useSignal(cfg.model || "");
 
-	// Render different forms based on channel type
-	if (channelType === "telegram") {
-		return html`<${Modal} show=${true} onClose=${() => {
-			editingChannel.value = null;
-		}} title="Edit Telegram Bot">
-      <div class="channel-form">
-        <div class="text-sm text-[var(--text-strong)]">${ch.name || ch.account_id}</div>
-        <label class="text-xs text-[var(--muted)]">DM Policy</label>
-        <select data-field="dmPolicy" style=${selectStyle} value=${cfg.dm_policy || "open"}>
-          <option value="open">Open (anyone)</option>
-          <option value="allowlist">Allowlist only</option>
-          <option value="disabled">Disabled</option>
-        </select>
-        <label class="text-xs text-[var(--muted)]">Group Mention Mode</label>
-        <select data-field="mentionMode" style=${selectStyle} value=${cfg.mention_mode || "mention"}>
-          <option value="mention">Must @mention bot</option>
-          <option value="always">Always respond</option>
-          <option value="none">Don't respond in groups</option>
-        </select>
-        <label class="text-xs text-[var(--muted)]">Default Model</label>
-        <${ModelSelect} models=${modelsSig.value} value=${editModel.value}
-          onChange=${(v) => {
-						editModel.value = v;
-					}}
-          placeholder=${defaultPlaceholder} />
-        <label class="text-xs text-[var(--muted)]">DM Allowlist (one username per line)</label>
-        <textarea data-field="allowlist" rows="3"
-          style="font-family:var(--font-body);resize:vertical;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:.85rem;">${(cfg.allowlist || []).join("\n")}</textarea>
-        ${error.value && html`<div class="text-xs text-[var(--error)] channel-error" style="display:block;">${error.value}</div>`}
-        <button class="provider-btn"
-          onClick=${onSave} disabled=${saving.value}>
-          ${saving.value ? "Saving\u2026" : "Save Changes"}
-        </button>
-      </div>
-    </${Modal}>`;
+	function onSave(e) {
+		e.preventDefault();
+		var form = e.target.closest(".channel-form");
+		error.value = "";
+		saving.value = true;
+		var updateConfig = {
+			bot_token: cfg.bot_token || "",
+			app_token: cfg.app_token || "",
+			dm_policy: form.querySelector("[data-field=dmPolicy]").value,
+			channel_policy: form.querySelector("[data-field=channelPolicy]").value,
+			activation_mode: form.querySelector("[data-field=activationMode]").value,
+			user_allowlist: parseAllowlist(form, "userAllowlist"),
+		};
+		saveChannelUpdate(ch, "slack", updateConfig, editModel.value, saving, error);
 	}
 
-	if (channelType === "slack") {
-		return html`<${Modal} show=${true} onClose=${() => {
-			editingChannel.value = null;
-		}} title="Edit Slack Workspace">
-      <div class="channel-form">
-        <div class="text-sm text-[var(--text-strong)]">${ch.name || ch.account_id}</div>
-        <label class="text-xs text-[var(--muted)]">DM Policy</label>
-        <select data-field="dmPolicy" style=${selectStyle} value=${cfg.dm_policy || "open"}>
-          <option value="open">Open (anyone)</option>
-          <option value="allowlist">Allowlist only</option>
-          <option value="disabled">Disabled</option>
-        </select>
-        <label class="text-xs text-[var(--muted)]">Channel Policy</label>
-        <select data-field="channelPolicy" style=${selectStyle} value=${cfg.channel_policy || "open"}>
-          <option value="open">Open (all channels)</option>
-          <option value="allowlist">Allowlist only</option>
-          <option value="disabled">Disabled</option>
-        </select>
-        <label class="text-xs text-[var(--muted)]">Activation Mode</label>
-        <select data-field="activationMode" style=${selectStyle} value=${cfg.activation_mode || "mention"}>
-          <option value="mention">Must @mention bot</option>
-          <option value="always">Always respond</option>
-          <option value="thread_only">Thread only</option>
-        </select>
-        <label class="text-xs text-[var(--muted)]">Default Model</label>
-        <${ModelSelect} models=${modelsSig.value} value=${editModel.value}
-          onChange=${(v) => {
-						editModel.value = v;
-					}}
-          placeholder=${defaultPlaceholder} />
-        <label class="text-xs text-[var(--muted)]">User Allowlist (one Slack user ID per line)</label>
-        <textarea data-field="userAllowlist" rows="3"
-          style="font-family:var(--font-body);resize:vertical;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:.85rem;">${(cfg.user_allowlist || []).join("\n")}</textarea>
-        ${error.value && html`<div class="text-xs text-[var(--error)] channel-error" style="display:block;">${error.value}</div>`}
-        <button class="provider-btn"
-          onClick=${onSave} disabled=${saving.value}>
-          ${saving.value ? "Saving\u2026" : "Save Changes"}
-        </button>
-      </div>
-    </${Modal}>`;
+	return html`<${Modal} show=${true} onClose=${() => {
+		editingChannel.value = null;
+	}} title="Edit Slack Workspace">
+    <div class="channel-form">
+      <div class="text-sm text-[var(--text-strong)]">${ch.name || ch.account_id}</div>
+      <label class="text-xs text-[var(--muted)]">DM Policy</label>
+      <select data-field="dmPolicy" style=${EDIT_SELECT_STYLE} value=${cfg.dm_policy || "open"}>
+        <option value="open">Open (anyone)</option>
+        <option value="allowlist">Allowlist only</option>
+        <option value="disabled">Disabled</option>
+      </select>
+      <label class="text-xs text-[var(--muted)]">Channel Policy</label>
+      <select data-field="channelPolicy" style=${EDIT_SELECT_STYLE} value=${cfg.channel_policy || "open"}>
+        <option value="open">Open (all channels)</option>
+        <option value="allowlist">Allowlist only</option>
+        <option value="disabled">Disabled</option>
+      </select>
+      <label class="text-xs text-[var(--muted)]">Activation Mode</label>
+      <select data-field="activationMode" style=${EDIT_SELECT_STYLE} value=${cfg.activation_mode || "mention"}>
+        <option value="mention">Must @mention bot</option>
+        <option value="always">Always respond</option>
+        <option value="thread_only">Thread only</option>
+      </select>
+      <label class="text-xs text-[var(--muted)]">Default Model</label>
+      <${ModelSelect} models=${modelsSig.value} value=${editModel.value}
+        onChange=${(v) => {
+					editModel.value = v;
+				}}
+        placeholder=${getModelPlaceholder()} />
+      <label class="text-xs text-[var(--muted)]">User Allowlist (one Slack user ID per line)</label>
+      <textarea data-field="userAllowlist" rows="3" style=${EDIT_TEXTAREA_STYLE}>${(cfg.user_allowlist || []).join("\n")}</textarea>
+      ${error.value && html`<div class="text-xs text-[var(--error)] channel-error" style="display:block;">${error.value}</div>`}
+      <button class="provider-btn" onClick=${onSave} disabled=${saving.value}>
+        ${saving.value ? "Saving\u2026" : "Save Changes"}
+      </button>
+    </div>
+  </${Modal}>`;
+}
+
+function EditDiscordModal({ ch }) {
+	var cfg = ch.config || {};
+	var error = useSignal("");
+	var saving = useSignal(false);
+	var editModel = useSignal(cfg.model || "");
+
+	function onSave(e) {
+		e.preventDefault();
+		var form = e.target.closest(".channel-form");
+		error.value = "";
+		saving.value = true;
+		var updateConfig = {
+			token: cfg.token || "",
+			dm_policy: form.querySelector("[data-field=dmPolicy]").value,
+			guild_policy: form.querySelector("[data-field=guildPolicy]").value,
+			mention_mode: form.querySelector("[data-field=mentionMode]").value,
+			user_allowlist: parseAllowlist(form, "userAllowlist"),
+		};
+		saveChannelUpdate(ch, "discord", updateConfig, editModel.value, saving, error);
 	}
 
-	if (channelType === "discord") {
-		return html`<${Modal} show=${true} onClose=${() => {
-			editingChannel.value = null;
-		}} title="Edit Discord Bot">
-      <div class="channel-form">
-        <div class="text-sm text-[var(--text-strong)]">${ch.name || ch.account_id}</div>
-        <label class="text-xs text-[var(--muted)]">DM Policy</label>
-        <select data-field="dmPolicy" style=${selectStyle} value=${cfg.dm_policy || "open"}>
-          <option value="open">Open (anyone)</option>
-          <option value="allowlist">Allowlist only</option>
-          <option value="disabled">Disabled</option>
-        </select>
-        <label class="text-xs text-[var(--muted)]">Server (Guild) Policy</label>
-        <select data-field="guildPolicy" style=${selectStyle} value=${cfg.guild_policy || "open"}>
-          <option value="open">Open (all servers)</option>
-          <option value="allowlist">Allowlist only</option>
-          <option value="disabled">Disabled</option>
-        </select>
-        <label class="text-xs text-[var(--muted)]">Mention Mode</label>
-        <select data-field="mentionMode" style=${selectStyle} value=${cfg.mention_mode || "mention"}>
-          <option value="mention">Must @mention bot</option>
-          <option value="always">Always respond</option>
-          <option value="none">Don't respond in servers</option>
-        </select>
-        <label class="text-xs text-[var(--muted)]">Default Model</label>
-        <${ModelSelect} models=${modelsSig.value} value=${editModel.value}
-          onChange=${(v) => {
-						editModel.value = v;
-					}}
-          placeholder=${defaultPlaceholder} />
-        <label class="text-xs text-[var(--muted)]">User Allowlist (one Discord user ID per line)</label>
-        <textarea data-field="userAllowlist" rows="3"
-          style="font-family:var(--font-body);resize:vertical;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:.85rem;">${(cfg.user_allowlist || []).join("\n")}</textarea>
-        ${error.value && html`<div class="text-xs text-[var(--error)] channel-error" style="display:block;">${error.value}</div>`}
-        <button class="provider-btn"
-          onClick=${onSave} disabled=${saving.value}>
-          ${saving.value ? "Saving\u2026" : "Save Changes"}
-        </button>
-      </div>
-    </${Modal}>`;
-	}
+	return html`<${Modal} show=${true} onClose=${() => {
+		editingChannel.value = null;
+	}} title="Edit Discord Bot">
+    <div class="channel-form">
+      <div class="text-sm text-[var(--text-strong)]">${ch.name || ch.account_id}</div>
+      <label class="text-xs text-[var(--muted)]">DM Policy</label>
+      <select data-field="dmPolicy" style=${EDIT_SELECT_STYLE} value=${cfg.dm_policy || "open"}>
+        <option value="open">Open (anyone)</option>
+        <option value="allowlist">Allowlist only</option>
+        <option value="disabled">Disabled</option>
+      </select>
+      <label class="text-xs text-[var(--muted)]">Server (Guild) Policy</label>
+      <select data-field="guildPolicy" style=${EDIT_SELECT_STYLE} value=${cfg.guild_policy || "open"}>
+        <option value="open">Open (all servers)</option>
+        <option value="allowlist">Allowlist only</option>
+        <option value="disabled">Disabled</option>
+      </select>
+      <label class="text-xs text-[var(--muted)]">Mention Mode</label>
+      <select data-field="mentionMode" style=${EDIT_SELECT_STYLE} value=${cfg.mention_mode || "mention"}>
+        <option value="mention">Must @mention bot</option>
+        <option value="always">Always respond</option>
+        <option value="none">Don't respond in servers</option>
+      </select>
+      <label class="text-xs text-[var(--muted)]">Default Model</label>
+      <${ModelSelect} models=${modelsSig.value} value=${editModel.value}
+        onChange=${(v) => {
+					editModel.value = v;
+				}}
+        placeholder=${getModelPlaceholder()} />
+      <label class="text-xs text-[var(--muted)]">User Allowlist (one Discord user ID per line)</label>
+      <textarea data-field="userAllowlist" rows="3" style=${EDIT_TEXTAREA_STYLE}>${(cfg.user_allowlist || []).join("\n")}</textarea>
+      ${error.value && html`<div class="text-xs text-[var(--error)] channel-error" style="display:block;">${error.value}</div>`}
+      <button class="provider-btn" onClick=${onSave} disabled=${saving.value}>
+        ${saving.value ? "Saving\u2026" : "Save Changes"}
+      </button>
+    </div>
+  </${Modal}>`;
+}
 
+function EditChannelModal() {
+	var ch = editingChannel.value;
+	if (!ch) return null;
+	var channelType = ch.type || "telegram";
+	if (channelType === "telegram") return html`<${EditTelegramModal} ch=${ch} />`;
+	if (channelType === "slack") return html`<${EditSlackModal} ch=${ch} />`;
+	if (channelType === "discord") return html`<${EditDiscordModal} ch=${ch} />`;
 	return null;
 }
 
