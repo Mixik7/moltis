@@ -3,7 +3,10 @@
 //! allowing the gateway to run standalone before domain crates are wired in.
 
 use {
-    async_trait::async_trait, moltis_channels::ChannelOutbound, serde_json::Value, std::sync::Arc,
+    async_trait::async_trait,
+    moltis_channels::ChannelOutbound,
+    serde_json::Value,
+    std::{collections::HashMap, sync::Arc},
 };
 
 /// Error type returned by service methods.
@@ -1464,8 +1467,8 @@ pub struct GatewayServices {
     pub provider_setup: Arc<dyn ProviderSetupService>,
     pub project: Arc<dyn ProjectService>,
     pub local_llm: Arc<dyn LocalLlmService>,
-    /// Optional channel outbound for sending replies back to channels.
-    channel_outbound: Option<Arc<dyn ChannelOutbound>>,
+    /// Channel outbounds keyed by channel type (e.g. "telegram", "xmpp").
+    channel_outbounds: HashMap<String, Arc<dyn ChannelOutbound>>,
     /// Optional session metadata for cross-service access (e.g. channel binding).
     pub session_metadata: Option<Arc<moltis_sessions::metadata::SqliteSessionMetadata>>,
     /// Optional session store for message-index lookups (e.g. deduplication).
@@ -1493,13 +1496,23 @@ impl GatewayServices {
         self
     }
 
-    pub fn with_channel_outbound(mut self, outbound: Arc<dyn ChannelOutbound>) -> Self {
-        self.channel_outbound = Some(outbound);
+    pub fn with_channel_outbound(
+        mut self,
+        channel_type: impl Into<String>,
+        outbound: Arc<dyn ChannelOutbound>,
+    ) -> Self {
+        self.channel_outbounds.insert(channel_type.into(), outbound);
         self
     }
 
+    /// Look up the outbound for a specific channel type.
+    pub fn channel_outbound_for(&self, channel_type: &str) -> Option<Arc<dyn ChannelOutbound>> {
+        self.channel_outbounds.get(channel_type).cloned()
+    }
+
+    /// Return the first registered outbound (backward compat).
     pub fn channel_outbound_arc(&self) -> Option<Arc<dyn ChannelOutbound>> {
-        self.channel_outbound.clone()
+        self.channel_outbounds.values().next().cloned()
     }
 
     /// Create a service bundle with all noop implementations.
@@ -1527,7 +1540,7 @@ impl GatewayServices {
             provider_setup: Arc::new(NoopProviderSetupService),
             project: Arc::new(NoopProjectService),
             local_llm: Arc::new(NoopLocalLlmService),
-            channel_outbound: None,
+            channel_outbounds: HashMap::new(),
             session_metadata: None,
             session_store: None,
         }

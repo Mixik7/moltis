@@ -58,27 +58,6 @@ impl TelegramPlugin {
         self.event_sink = Some(sink);
         self
     }
-
-    /// Get a shared reference to the outbound sender (for use outside the plugin).
-    pub fn shared_outbound(&self) -> Arc<dyn moltis_channels::ChannelOutbound> {
-        Arc::new(TelegramOutbound {
-            accounts: Arc::clone(&self.accounts),
-        })
-    }
-
-    /// List all active account IDs.
-    pub fn account_ids(&self) -> Vec<String> {
-        let accounts = self.accounts.read().unwrap();
-        accounts.keys().cloned().collect()
-    }
-
-    /// Get the config for a specific account (serialized to JSON).
-    pub fn account_config(&self, account_id: &str) -> Option<serde_json::Value> {
-        let accounts = self.accounts.read().unwrap();
-        accounts
-            .get(account_id)
-            .and_then(|s| serde_json::to_value(&s.config).ok())
-    }
 }
 
 impl Default for TelegramPlugin {
@@ -140,8 +119,26 @@ impl ChannelPlugin for TelegramPlugin {
         Some(&self.outbound)
     }
 
+    fn shared_outbound(&self) -> Arc<dyn moltis_channels::ChannelOutbound> {
+        Arc::new(TelegramOutbound {
+            accounts: Arc::clone(&self.accounts),
+        })
+    }
+
     fn status(&self) -> Option<&dyn ChannelStatus> {
         Some(self)
+    }
+
+    fn account_ids(&self) -> Vec<String> {
+        let accounts = self.accounts.read().unwrap();
+        accounts.keys().cloned().collect()
+    }
+
+    fn account_config(&self, account_id: &str) -> Option<serde_json::Value> {
+        let accounts = self.accounts.read().unwrap();
+        accounts
+            .get(account_id)
+            .and_then(|s| serde_json::to_value(&s.config).ok())
     }
 }
 

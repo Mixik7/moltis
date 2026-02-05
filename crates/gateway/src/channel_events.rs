@@ -17,6 +17,15 @@ use crate::{
     state::GatewayState,
 };
 
+/// Capitalize the first character of a string (e.g. "telegram" → "Telegram").
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 /// Default (deterministic) session key for a channel chat.
 fn default_channel_session_key(target: &ChannelReplyTarget) -> String {
     format!(
@@ -119,7 +128,7 @@ impl ChannelEventSink for GatewayChannelEventSink {
             if let Ok(binding_json) = serde_json::to_string(&reply_to)
                 && let Some(ref session_meta) = state.services.session_metadata
             {
-                // Label the first session "Telegram 1" if it has no label yet.
+                // Label the first session "{Channel} 1" if it has no label yet.
                 if let Some(entry) = session_meta.get(&session_key).await
                     && entry.channel_binding.is_none()
                 {
@@ -131,8 +140,9 @@ impl ChannelEventSink for GatewayChannelEventSink {
                         )
                         .await;
                     let n = existing.len() + 1;
+                    let channel_label = capitalize_first(&reply_to.channel_type);
                     let _ = session_meta
-                        .upsert(&session_key, Some(format!("Telegram {n}")))
+                        .upsert(&session_key, Some(format!("{channel_label} {n}")))
                         .await;
                 }
                 session_meta
@@ -349,7 +359,10 @@ impl ChannelEventSink for GatewayChannelEventSink {
 
                 // Create the new session entry with channel binding.
                 session_metadata
-                    .upsert(&new_key, Some(format!("Telegram {n}")))
+                    .upsert(
+                        &new_key,
+                        Some(format!("{} {n}", capitalize_first(&reply_to.channel_type))),
+                    )
                     .await
                     .map_err(|e| anyhow!("failed to create session: {e}"))?;
                 session_metadata

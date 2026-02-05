@@ -21,7 +21,7 @@ use {
 #[cfg(feature = "web-ui")]
 use axum::{extract::Path, http::StatusCode};
 
-use {moltis_channels::ChannelPlugin, moltis_protocol::TICK_INTERVAL_MS};
+use moltis_protocol::TICK_INTERVAL_MS;
 
 use moltis_agents::providers::ProviderRegistry;
 
@@ -652,9 +652,9 @@ pub async fn start_gateway(
 
     // Session service is wired after hook registry is built (below).
 
-    // Wire channel store and Telegram channel service.
+    // Wire channel store and channel plugins via ChannelRegistry.
     {
-        use moltis_channels::store::ChannelStore;
+        use moltis_channels::{ChannelPlugin, registry::ChannelRegistry, store::ChannelStore};
 
         let channel_store: Arc<dyn ChannelStore> = Arc::new(
             crate::channel_store::SqliteChannelStore::new(db_pool.clone()),
@@ -663,13 +663,17 @@ pub async fn start_gateway(
         let channel_sink = Arc::new(crate::channel_events::GatewayChannelEventSink::new(
             Arc::clone(&deferred_state),
         ));
+
+        // ── Telegram plugin ──────────────────────────────────────────────
         let mut tg_plugin = moltis_telegram::TelegramPlugin::new()
             .with_message_log(Arc::clone(&message_log))
-            .with_event_sink(channel_sink);
+            .with_event_sink(
+                Arc::clone(&channel_sink) as Arc<dyn moltis_channels::ChannelEventSink>
+            );
 
-        // Start channels from config file (these take precedence).
+        // Start Telegram channels from config file (these take precedence).
         let tg_accounts = &config.channels.telegram;
-        let mut started: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut tg_started: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (account_id, account_config) in tg_accounts {
             if let Err(e) = tg_plugin
                 .start_account(account_id, account_config.clone())
@@ -677,16 +681,52 @@ pub async fn start_gateway(
             {
                 tracing::warn!(account_id, "failed to start telegram account: {e}");
             } else {
-                started.insert(account_id.clone());
+                tg_started.insert(account_id.clone());
             }
         }
+
+        if !tg_started.is_empty() {
+            info!(
+                "{} telegram account(s) started from config",
+                tg_started.len()
+            );
+        }
+
+        // ── XMPP plugin ─────────────────────────────────────────────────
+        let mut xmpp_plugin = moltis_xmpp::XmppPlugin::new()
+            .with_message_log(Arc::clone(&message_log))
+            .with_event_sink(
+                Arc::clone(&channel_sink) as Arc<dyn moltis_channels::ChannelEventSink>
+            );
+
+        // Start XMPP channels from config file.
+        let xmpp_accounts = &config.channels.xmpp;
+        let mut xmpp_started: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for (account_id, account_config) in xmpp_accounts {
+            if let Err(e) = xmpp_plugin
+                .start_account(account_id, account_config.clone())
+                .await
+            {
+                tracing::warn!(account_id, "failed to start xmpp account: {e}");
+            } else {
+                xmpp_started.insert(account_id.clone());
+            }
+        }
+
+        if !xmpp_started.is_empty() {
+            info!("{} xmpp account(s) started from config", xmpp_started.len());
+        }
+
+        // Combine started sets for stored-channel dedup.
+        let mut all_started = tg_started;
+        all_started.extend(xmpp_started);
 
         // Load persisted channels that weren't in the config file.
         match channel_store.list().await {
             Ok(stored) => {
                 info!("{} stored channel(s) found in database", stored.len());
                 for ch in stored {
-                    if started.contains(&ch.account_id) {
+                    if all_started.contains(&ch.account_id) {
                         info!(
                             account_id = ch.account_id,
                             "skipping stored channel (already started from config)"
@@ -698,13 +738,26 @@ pub async fn start_gateway(
                         channel_type = ch.channel_type,
                         "starting stored channel"
                     );
-                    if let Err(e) = tg_plugin.start_account(&ch.account_id, ch.config).await {
+                    let result = match ch.channel_type.as_str() {
+                        "telegram" => tg_plugin.start_account(&ch.account_id, ch.config).await,
+                        "xmpp" => xmpp_plugin.start_account(&ch.account_id, ch.config).await,
+                        other => {
+                            tracing::warn!(
+                                account_id = ch.account_id,
+                                channel_type = other,
+                                "unknown channel type in store, skipping"
+                            );
+                            continue;
+                        },
+                    };
+                    if let Err(e) = result {
                         tracing::warn!(
                             account_id = ch.account_id,
-                            "failed to start stored telegram account: {e}"
+                            channel_type = ch.channel_type,
+                            "failed to start stored channel: {e}"
                         );
                     } else {
-                        started.insert(ch.account_id);
+                        all_started.insert(ch.account_id);
                     }
                 }
             },
@@ -713,16 +766,20 @@ pub async fn start_gateway(
             },
         }
 
-        if !started.is_empty() {
-            info!("{} telegram account(s) started", started.len());
-        }
-
-        // Grab shared outbound before moving tg_plugin into the channel service.
+        // Grab shared outbounds before moving plugins into the registry.
         let tg_outbound = tg_plugin.shared_outbound();
-        services = services.with_channel_outbound(tg_outbound);
+        let xmpp_outbound = xmpp_plugin.shared_outbound();
+        services = services
+            .with_channel_outbound("telegram", tg_outbound)
+            .with_channel_outbound("xmpp", xmpp_outbound);
+
+        // Build channel registry and wire into the channel service.
+        let mut registry = ChannelRegistry::new();
+        registry.register(Box::new(tg_plugin));
+        registry.register(Box::new(xmpp_plugin));
 
         services.channel = Arc::new(crate::channel::LiveChannelService::new(
-            tg_plugin,
+            registry,
             channel_store,
             Arc::clone(&message_log),
             Arc::clone(&session_metadata),

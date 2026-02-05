@@ -1997,31 +1997,30 @@ async fn deliver_channel_replies(state: &Arc<GatewayState>, session_key: &str, t
     if targets.is_empty() || text.is_empty() {
         return;
     }
-    let outbound = match state.services.channel_outbound_arc() {
-        Some(o) => o,
-        None => return,
-    };
     let text = text.to_string();
     for target in targets {
-        let outbound = Arc::clone(&outbound);
+        let outbound = match state.services.channel_outbound_for(&target.channel_type) {
+            Some(o) => o,
+            None => {
+                warn!(
+                    channel_type = target.channel_type,
+                    "no outbound registered for channel type"
+                );
+                continue;
+            },
+        };
         let text = text.clone();
         tokio::spawn(async move {
-            match target.channel_type.as_str() {
-                "telegram" => {
-                    if let Err(e) = outbound
-                        .send_text(&target.account_id, &target.chat_id, &text)
-                        .await
-                    {
-                        warn!(
-                            account_id = target.account_id,
-                            chat_id = target.chat_id,
-                            "failed to send channel reply: {e}"
-                        );
-                    }
-                },
-                other => {
-                    warn!(channel_type = other, "unsupported channel type for reply");
-                },
+            if let Err(e) = outbound
+                .send_text(&target.account_id, &target.chat_id, &text)
+                .await
+            {
+                warn!(
+                    account_id = target.account_id,
+                    chat_id = target.chat_id,
+                    channel_type = target.channel_type,
+                    "failed to send channel reply: {e}"
+                );
             }
         });
     }

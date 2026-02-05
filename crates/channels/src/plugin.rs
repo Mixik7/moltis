@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use {
     anyhow::Result, async_trait::async_trait, moltis_common::types::ReplyPayload, tokio::sync::mpsc,
 };
@@ -79,10 +81,10 @@ pub struct ChannelReplyTarget {
 /// Core channel plugin trait. Each messaging platform implements this.
 #[async_trait]
 pub trait ChannelPlugin: Send + Sync {
-    /// Channel identifier (e.g. "telegram", "discord").
+    /// Channel identifier (e.g. "telegram", "xmpp").
     fn id(&self) -> &str;
 
-    /// Human-readable channel name.
+    /// Human-readable channel name (e.g. "Telegram", "XMPP").
     fn name(&self) -> &str;
 
     /// Start an account connection.
@@ -94,8 +96,17 @@ pub trait ChannelPlugin: Send + Sync {
     /// Get outbound adapter for sending messages.
     fn outbound(&self) -> Option<&dyn ChannelOutbound>;
 
+    /// Get a shared (cloneable) outbound adapter.
+    fn shared_outbound(&self) -> Arc<dyn ChannelOutbound>;
+
     /// Get status adapter for health checks.
     fn status(&self) -> Option<&dyn ChannelStatus>;
+
+    /// List all active account IDs.
+    fn account_ids(&self) -> Vec<String>;
+
+    /// Get the config for a specific account as JSON.
+    fn account_config(&self, account_id: &str) -> Option<serde_json::Value>;
 }
 
 /// Send messages to a channel.

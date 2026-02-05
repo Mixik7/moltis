@@ -352,6 +352,9 @@ pub struct ChannelsConfig {
     /// Telegram bot accounts, keyed by account ID.
     #[serde(default)]
     pub telegram: HashMap<String, serde_json::Value>,
+    /// XMPP accounts, keyed by account ID.
+    #[serde(default)]
+    pub xmpp: HashMap<String, serde_json::Value>,
 }
 
 /// TLS configuration for the gateway HTTPS server.

@@ -1,0 +1,33 @@
+[package]
+description       = "XMPP channel plugin for OpenClaw"
+edition.workspace = true
+name              = "moltis-xmpp"
+version.workspace = true
+
+[dependencies]
+anyhow            = { workspace = true }
+async-trait       = "0.1"
+futures           = { workspace = true }
+jid               = "0.11"
+moltis-auto-reply = { workspace = true }
+moltis-channels   = { workspace = true }
+moltis-common     = { workspace = true }
+moltis-metrics    = { optional = true, workspace = true }
+reqwest           = { workspace = true }
+secrecy           = { workspace = true }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
+tokio             = { workspace = true }
+tokio-util        = { workspace = true }
+tokio-xmpp        = { default-features = false, features = ["aws_lc_rs", "rustls-native-certs", "starttls"], version = "5" }
+tracing           = { workspace = true }
+
+[features]
+default = []
+metrics = ["dep:moltis-metrics"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lints]
+workspace = true

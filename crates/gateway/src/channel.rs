@@ -7,7 +7,7 @@ use {
     tracing::{error, info, warn},
 };
 
-use {moltis_channels::ChannelPlugin, moltis_telegram::TelegramPlugin};
+use moltis_channels::registry::ChannelRegistry;
 
 use {
     moltis_channels::{
@@ -26,9 +26,9 @@ fn unix_now() -> i64 {
         .as_secs() as i64
 }
 
-/// Live channel service backed by `TelegramPlugin`.
+/// Live channel service backed by `ChannelRegistry` (supports multiple channel types).
 pub struct LiveChannelService {
-    telegram: Arc<RwLock<TelegramPlugin>>,
+    registry: Arc<RwLock<ChannelRegistry>>,
     store: Arc<dyn ChannelStore>,
     message_log: Arc<dyn MessageLog>,
     session_metadata: Arc<SqliteSessionMetadata>,
@@ -36,13 +36,13 @@ pub struct LiveChannelService {
 
 impl LiveChannelService {
     pub fn new(
-        telegram: TelegramPlugin,
+        registry: ChannelRegistry,
         store: Arc<dyn ChannelStore>,
         message_log: Arc<dyn MessageLog>,
         session_metadata: Arc<SqliteSessionMetadata>,
     ) -> Self {
         Self {
-            telegram: Arc::new(RwLock::new(telegram)),
+            registry: Arc::new(RwLock::new(registry)),
             store,
             message_log,
             session_metadata,
@@ -53,61 +53,70 @@ impl LiveChannelService {
 #[async_trait]
 impl ChannelService for LiveChannelService {
     async fn status(&self) -> ServiceResult {
-        let tg = self.telegram.read().await;
-        let account_ids = tg.account_ids();
+        let reg = self.registry.read().await;
         let mut channels = Vec::new();
 
-        if let Some(status) = tg.status() {
-            for aid in &account_ids {
-                match status.probe(aid).await {
-                    Ok(snap) => {
-                        let mut entry = serde_json::json!({
-                            "type": "telegram",
-                            "name": format!("Telegram ({})", aid),
-                            "account_id": aid,
-                            "status": if snap.connected { "connected" } else { "disconnected" },
-                            "details": snap.details,
-                        });
-                        if let Some(cfg) = tg.account_config(aid) {
-                            entry["config"] = cfg;
-                        }
+        for plugin_id in reg.list() {
+            let plugin = match reg.get(plugin_id) {
+                Some(p) => p,
+                None => continue,
+            };
+            let channel_type = plugin.id();
+            let channel_name = plugin.name();
+            let account_ids = plugin.account_ids();
 
-                        // Include bound sessions and active session mappings.
-                        let bound = self
-                            .session_metadata
-                            .list_account_sessions("telegram", aid)
-                            .await;
-                        let active_map = self
-                            .session_metadata
-                            .list_active_sessions("telegram", aid)
-                            .await;
-                        let sessions: Vec<_> = bound
-                            .iter()
-                            .map(|s| {
-                                let is_active = active_map.iter().any(|(_, sk)| sk == &s.key);
-                                serde_json::json!({
-                                    "key": s.key,
-                                    "label": s.label,
-                                    "messageCount": s.message_count,
-                                    "active": is_active,
+            if let Some(status) = plugin.status() {
+                for aid in &account_ids {
+                    match status.probe(aid).await {
+                        Ok(snap) => {
+                            let mut entry = serde_json::json!({
+                                "type": channel_type,
+                                "name": format!("{} ({})", channel_name, aid),
+                                "account_id": aid,
+                                "status": if snap.connected { "connected" } else { "disconnected" },
+                                "details": snap.details,
+                            });
+                            if let Some(cfg) = plugin.account_config(aid) {
+                                entry["config"] = cfg;
+                            }
+
+                            // Include bound sessions and active session mappings.
+                            let bound = self
+                                .session_metadata
+                                .list_account_sessions(channel_type, aid)
+                                .await;
+                            let active_map = self
+                                .session_metadata
+                                .list_active_sessions(channel_type, aid)
+                                .await;
+                            let sessions: Vec<_> = bound
+                                .iter()
+                                .map(|s| {
+                                    let is_active = active_map.iter().any(|(_, sk)| sk == &s.key);
+                                    serde_json::json!({
+                                        "key": s.key,
+                                        "label": s.label,
+                                        "messageCount": s.message_count,
+                                        "active": is_active,
+                                    })
                                 })
-                            })
-                            .collect();
-                        if !sessions.is_empty() {
-                            entry["sessions"] = serde_json::json!(sessions);
-                        }
+                                .collect();
+                            if !sessions.is_empty() {
+                                entry["sessions"] = serde_json::json!(sessions);
+                            }
 
-                        channels.push(entry);
-                    },
-                    Err(e) => {
-                        channels.push(serde_json::json!({
-                            "type": "telegram",
-                            "name": format!("Telegram ({})", aid),
-                            "account_id": aid,
-                            "status": "error",
-                            "details": e.to_string(),
-                        }));
-                    },
+                            channels.push(entry);
+                        },
+                        Err(e) => {
+                            channels.push(serde_json::json!({
+                                "type": channel_type,
+                                "name": format!("{} ({})", channel_name, aid),
+                                "account_id": aid,
+                                "status": "error",
+                                "details": e.to_string(),
+                            }));
+                        },
+                    }
                 }
             }
         }
@@ -119,11 +128,7 @@ impl ChannelService for LiveChannelService {
         let channel_type = params
             .get("type")
             .and_then(|v| v.as_str())
-            .unwrap_or("telegram");
-
-        if channel_type != "telegram" {
-            return Err(format!("unsupported channel type: {channel_type}"));
-        }
+            .ok_or_else(|| "missing 'type'".to_string())?;
 
         let account_id = params
             .get("account_id")
@@ -135,13 +140,17 @@ impl ChannelService for LiveChannelService {
             .cloned()
             .unwrap_or(Value::Object(Default::default()));
 
-        info!(account_id, "adding telegram channel account");
+        info!(account_id, channel_type, "adding channel account");
 
-        let mut tg = self.telegram.write().await;
-        tg.start_account(account_id, config.clone())
+        let mut reg = self.registry.write().await;
+        let plugin = reg
+            .get_mut(channel_type)
+            .ok_or_else(|| format!("unsupported channel type: {channel_type}"))?;
+        plugin
+            .start_account(account_id, config.clone())
             .await
             .map_err(|e| {
-                error!(error = %e, account_id, "failed to start telegram account");
+                error!(error = %e, account_id, channel_type, "failed to start account");
                 e.to_string()
             })?;
 
@@ -150,7 +159,7 @@ impl ChannelService for LiveChannelService {
             .store
             .upsert(StoredChannel {
                 account_id: account_id.to_string(),
-                channel_type: "telegram".into(),
+                channel_type: channel_type.to_string(),
                 config,
                 created_at: now,
                 updated_at: now,
@@ -169,13 +178,40 @@ impl ChannelService for LiveChannelService {
             .and_then(|v| v.as_str())
             .ok_or_else(|| "missing 'account_id'".to_string())?;
 
-        info!(account_id, "removing telegram channel account");
+        // Look up the channel type from the store so we know which plugin to stop.
+        let channel_type = params
+            .get("type")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-        let mut tg = self.telegram.write().await;
-        tg.stop_account(account_id).await.map_err(|e| {
-            error!(error = %e, account_id, "failed to stop telegram account");
-            e.to_string()
-        })?;
+        let channel_type = if let Some(ct) = channel_type {
+            ct
+        } else {
+            // Find which plugin owns this account_id.
+            let reg = self.registry.read().await;
+            let mut found = None;
+            for pid in reg.list() {
+                if let Some(p) = reg.get(pid)
+                    && p.account_ids().contains(&account_id.to_string())
+                {
+                    found = Some(pid.to_string());
+                    break;
+                }
+            }
+            drop(reg);
+            found.ok_or_else(|| format!("account '{account_id}' not found in any plugin"))?
+        };
+
+        info!(account_id, channel_type = %channel_type, "removing channel account");
+
+        let mut reg = self.registry.write().await;
+        if let Some(plugin) = reg.get_mut(&channel_type) {
+            plugin.stop_account(account_id).await.map_err(|e| {
+                error!(error = %e, account_id, "failed to stop account");
+                e.to_string()
+            })?;
+        }
+        drop(reg);
 
         if let Err(e) = self.store.delete(account_id).await {
             warn!(error = %e, account_id, "failed to delete channel from store");
@@ -199,29 +235,56 @@ impl ChannelService for LiveChannelService {
             .cloned()
             .ok_or_else(|| "missing 'config'".to_string())?;
 
-        info!(account_id, "updating telegram channel account");
+        let channel_type = params
+            .get("type")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-        let mut tg = self.telegram.write().await;
+        let channel_type = if let Some(ct) = channel_type {
+            ct
+        } else {
+            let reg = self.registry.read().await;
+            let mut found = None;
+            for pid in reg.list() {
+                if let Some(p) = reg.get(pid)
+                    && p.account_ids().contains(&account_id.to_string())
+                {
+                    found = Some(pid.to_string());
+                    break;
+                }
+            }
+            drop(reg);
+            found.ok_or_else(|| format!("account '{account_id}' not found in any plugin"))?
+        };
+
+        info!(account_id, channel_type = %channel_type, "updating channel account");
+
+        let mut reg = self.registry.write().await;
+        let plugin = reg
+            .get_mut(&channel_type)
+            .ok_or_else(|| format!("unsupported channel type: {channel_type}"))?;
 
         // Stop then restart with new config
-        tg.stop_account(account_id).await.map_err(|e| {
-            error!(error = %e, account_id, "failed to stop telegram account for update");
+        plugin.stop_account(account_id).await.map_err(|e| {
+            error!(error = %e, account_id, "failed to stop account for update");
             e.to_string()
         })?;
 
-        tg.start_account(account_id, config.clone())
+        plugin
+            .start_account(account_id, config.clone())
             .await
             .map_err(|e| {
-                error!(error = %e, account_id, "failed to restart telegram account after update");
+                error!(error = %e, account_id, "failed to restart account after update");
                 e.to_string()
             })?;
+        drop(reg);
 
         let now = unix_now();
         if let Err(e) = self
             .store
             .upsert(StoredChannel {
                 account_id: account_id.to_string(),
-                channel_type: "telegram".into(),
+                channel_type,
                 config,
                 created_at: now,
                 updated_at: now,
@@ -251,12 +314,24 @@ impl ChannelService for LiveChannelService {
             .map_err(|e| e.to_string())?;
 
         // Read allowlist from current config to tag each sender.
-        let tg = self.telegram.read().await;
-        let allowlist: Vec<String> = tg
-            .account_config(account_id)
+        // Find the plugin that owns this account.
+        let reg = self.registry.read().await;
+        let allowlist: Vec<String> = reg
+            .list()
+            .iter()
+            .find_map(|pid| {
+                reg.get(pid).and_then(|p| {
+                    if p.account_ids().contains(&account_id.to_string()) {
+                        p.account_config(account_id)
+                    } else {
+                        None
+                    }
+                })
+            })
             .and_then(|cfg| cfg.get("allowlist").cloned())
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
+        drop(reg);
 
         let list: Vec<Value> = senders
             .into_iter()
@@ -301,6 +376,8 @@ impl ChannelService for LiveChannelService {
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("channel '{account_id}' not found in store"))?;
 
+        let channel_type = stored.channel_type.clone();
+
         let mut config = stored.config.clone();
         let allowlist = config
             .as_object_mut()
@@ -332,7 +409,7 @@ impl ChannelService for LiveChannelService {
             .store
             .upsert(StoredChannel {
                 account_id: account_id.to_string(),
-                channel_type: "telegram".into(),
+                channel_type: channel_type.clone(),
                 config: config.clone(),
                 created_at: stored.created_at,
                 updated_at: now,
@@ -343,13 +420,17 @@ impl ChannelService for LiveChannelService {
         }
 
         // Restart account with new config.
-        let mut tg = self.telegram.write().await;
-        if let Err(e) = tg.stop_account(account_id).await {
-            warn!(error = %e, account_id, "failed to stop account for sender approval");
+        let mut reg = self.registry.write().await;
+        if let Some(plugin) = reg.get_mut(&channel_type) {
+            if let Err(e) = plugin.stop_account(account_id).await {
+                warn!(error = %e, account_id, "failed to stop account for sender approval");
+            }
+            plugin
+                .start_account(account_id, config)
+                .await
+                .map_err(|e| e.to_string())?;
         }
-        tg.start_account(account_id, config)
-            .await
-            .map_err(|e| e.to_string())?;
+        drop(reg);
 
         info!(account_id, identifier, "sender approved");
         Ok(serde_json::json!({ "approved": identifier }))
@@ -373,6 +454,8 @@ impl ChannelService for LiveChannelService {
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("channel '{account_id}' not found in store"))?;
 
+        let channel_type = stored.channel_type.clone();
+
         let mut config = stored.config.clone();
         if let Some(arr) = config
             .as_object_mut()
@@ -389,7 +472,7 @@ impl ChannelService for LiveChannelService {
             .store
             .upsert(StoredChannel {
                 account_id: account_id.to_string(),
-                channel_type: "telegram".into(),
+                channel_type: channel_type.clone(),
                 config: config.clone(),
                 created_at: stored.created_at,
                 updated_at: now,
@@ -400,13 +483,17 @@ impl ChannelService for LiveChannelService {
         }
 
         // Restart account with new config.
-        let mut tg = self.telegram.write().await;
-        if let Err(e) = tg.stop_account(account_id).await {
-            warn!(error = %e, account_id, "failed to stop account for sender denial");
+        let mut reg = self.registry.write().await;
+        if let Some(plugin) = reg.get_mut(&channel_type) {
+            if let Err(e) = plugin.stop_account(account_id).await {
+                warn!(error = %e, account_id, "failed to stop account for sender denial");
+            }
+            plugin
+                .start_account(account_id, config)
+                .await
+                .map_err(|e| e.to_string())?;
         }
-        tg.start_account(account_id, config)
-            .await
-            .map_err(|e| e.to_string())?;
+        drop(reg);
 
         info!(account_id, identifier, "sender denied");
         Ok(serde_json::json!({ "denied": identifier }))
