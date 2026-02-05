@@ -9,6 +9,7 @@ members = [
   "crates/common",
   "crates/config",
   "crates/cron",
+  "crates/discord",
   "crates/gateway",
   "crates/mcp",
   "crates/media",
@@ -21,6 +22,7 @@ members = [
   "crates/routing",
   "crates/sessions",
   "crates/skills",
+  "crates/slack",
   "crates/telegram",
   "crates/tools",
 ]
@@ -111,5 +113,7 @@ moltis-protocol   = { path = "crates/protocol" }
 moltis-routing    = { path = "crates/routing" }
 moltis-sessions   = { path = "crates/sessions" }
 moltis-skills     = { path = "crates/skills" }
+moltis-discord    = { path = "crates/discord" }
+moltis-slack      = { path = "crates/slack" }
 moltis-telegram   = { path = "crates/telegram" }
 moltis-tools      = { path = "crates/tools" }

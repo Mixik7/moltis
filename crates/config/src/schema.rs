@@ -326,6 +326,12 @@ pub struct ChannelsConfig {
     /// Telegram bot accounts, keyed by account ID.
     #[serde(default)]
     pub telegram: HashMap<String, serde_json::Value>,
+    /// Slack workspace accounts, keyed by account ID.
+    #[serde(default)]
+    pub slack: HashMap<String, serde_json::Value>,
+    /// Discord bot accounts, keyed by account ID.
+    #[serde(default)]
+    pub discord: HashMap<String, serde_json::Value>,
 }
 
 /// TLS configuration for the gateway HTTPS server.

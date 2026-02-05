@@ -607,7 +607,7 @@ pub async fn start_gateway(
 
     // Session service is wired after hook registry is built (below).
 
-    // Wire channel store and Telegram channel service.
+    // Wire channel store and channel services (Telegram, Slack, Discord).
     {
         use moltis_channels::store::ChannelStore;
 
@@ -618,24 +618,59 @@ pub async fn start_gateway(
             crate::channel_store::SqliteChannelStore::new(db_pool.clone()),
         );
 
-        let channel_sink = Arc::new(crate::channel_events::GatewayChannelEventSink::new(
-            Arc::clone(&deferred_state),
-        ));
+        let channel_sink: Arc<dyn moltis_channels::ChannelEventSink> = Arc::new(
+            crate::channel_events::GatewayChannelEventSink::new(Arc::clone(&deferred_state)),
+        );
+
+        // Create all channel plugins
         let mut tg_plugin = moltis_telegram::TelegramPlugin::new()
             .with_message_log(Arc::clone(&message_log))
-            .with_event_sink(channel_sink);
+            .with_event_sink(Arc::clone(&channel_sink));
 
-        // Start channels from config file (these take precedence).
-        let tg_accounts = &config.channels.telegram;
+        let mut slack_plugin = moltis_slack::SlackPlugin::new()
+            .with_message_log(Arc::clone(&message_log))
+            .with_event_sink(Arc::clone(&channel_sink));
+
+        let mut discord_plugin = moltis_discord::DiscordPlugin::new()
+            .with_message_log(Arc::clone(&message_log))
+            .with_event_sink(Arc::clone(&channel_sink));
+
+        // Track started accounts to avoid duplicates
         let mut started: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for (account_id, account_config) in tg_accounts {
+
+        // Start Telegram accounts from config
+        for (account_id, account_config) in &config.channels.telegram {
             if let Err(e) = tg_plugin
                 .start_account(account_id, account_config.clone())
                 .await
             {
                 tracing::warn!(account_id, "failed to start telegram account: {e}");
             } else {
-                started.insert(account_id.clone());
+                started.insert(format!("telegram:{account_id}"));
+            }
+        }
+
+        // Start Slack accounts from config
+        for (account_id, account_config) in &config.channels.slack {
+            if let Err(e) = slack_plugin
+                .start_account(account_id, account_config.clone())
+                .await
+            {
+                tracing::warn!(account_id, "failed to start slack account: {e}");
+            } else {
+                started.insert(format!("slack:{account_id}"));
+            }
+        }
+
+        // Start Discord accounts from config
+        for (account_id, account_config) in &config.channels.discord {
+            if let Err(e) = discord_plugin
+                .start_account(account_id, account_config.clone())
+                .await
+            {
+                tracing::warn!(account_id, "failed to start discord account: {e}");
+            } else {
+                started.insert(format!("discord:{account_id}"));
             }
         }
 
@@ -644,9 +679,11 @@ pub async fn start_gateway(
             Ok(stored) => {
                 info!("{} stored channel(s) found in database", stored.len());
                 for ch in stored {
-                    if started.contains(&ch.account_id) {
+                    let key = format!("{}:{}", ch.channel_type, ch.account_id);
+                    if started.contains(&key) {
                         info!(
                             account_id = ch.account_id,
+                            channel_type = ch.channel_type,
                             "skipping stored channel (already started from config)"
                         );
                         continue;
@@ -656,13 +693,30 @@ pub async fn start_gateway(
                         channel_type = ch.channel_type,
                         "starting stored channel"
                     );
-                    if let Err(e) = tg_plugin.start_account(&ch.account_id, ch.config).await {
+                    let result = match ch.channel_type.as_str() {
+                        "telegram" => tg_plugin.start_account(&ch.account_id, ch.config).await,
+                        "slack" => slack_plugin.start_account(&ch.account_id, ch.config).await,
+                        "discord" => {
+                            discord_plugin
+                                .start_account(&ch.account_id, ch.config)
+                                .await
+                        },
+                        _ => {
+                            tracing::warn!(
+                                channel_type = ch.channel_type,
+                                "unknown channel type in store"
+                            );
+                            continue;
+                        },
+                    };
+                    if let Err(e) = result {
                         tracing::warn!(
                             account_id = ch.account_id,
-                            "failed to start stored telegram account: {e}"
+                            channel_type = ch.channel_type,
+                            "failed to start stored channel: {e}"
                         );
                     } else {
-                        started.insert(ch.account_id);
+                        started.insert(key);
                     }
                 }
             },
@@ -671,16 +725,33 @@ pub async fn start_gateway(
             },
         }
 
-        if !started.is_empty() {
-            info!("{} telegram account(s) started", started.len());
+        // Count started accounts per type
+        let tg_count = started
+            .iter()
+            .filter(|k| k.starts_with("telegram:"))
+            .count();
+        let slack_count = started.iter().filter(|k| k.starts_with("slack:")).count();
+        let discord_count = started.iter().filter(|k| k.starts_with("discord:")).count();
+
+        if tg_count > 0 {
+            info!("{} telegram account(s) started", tg_count);
+        }
+        if slack_count > 0 {
+            info!("{} slack account(s) started", slack_count);
+        }
+        if discord_count > 0 {
+            info!("{} discord account(s) started", discord_count);
         }
 
-        // Grab shared outbound before moving tg_plugin into the channel service.
+        // Grab shared outbound before moving plugins into the channel service.
+        // For now, use Telegram outbound as primary (can be extended to support multiple)
         let tg_outbound = tg_plugin.shared_outbound();
         services = services.with_channel_outbound(tg_outbound);
 
         services.channel = Arc::new(crate::channel::LiveChannelService::new(
             tg_plugin,
+            slack_plugin,
+            discord_plugin,
             channel_store,
             Arc::clone(&message_log),
             Arc::clone(&session_metadata),

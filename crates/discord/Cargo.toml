@@ -1,0 +1,25 @@
+[package]
+edition.workspace = true
+name              = "moltis-discord"
+version.workspace = true
+
+[dependencies]
+anyhow            = { workspace = true }
+async-trait       = "0.1"
+moltis-auto-reply = { workspace = true }
+moltis-channels   = { workspace = true }
+moltis-common     = { workspace = true }
+reqwest           = { workspace = true }
+secrecy           = { workspace = true }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
+serenity          = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend", "cache"] }
+tokio             = { workspace = true }
+tokio-util        = { workspace = true }
+tracing           = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,171 @@
+use std::{sync::Arc, time::Duration};
+
+use {
+    anyhow::Result,
+    async_trait::async_trait,
+    serenity::all::{ChannelId, CreateMessage, EditMessage, Http, MessageId},
+    tracing::debug,
+};
+
+use {
+    moltis_channels::plugin::{
+        ChannelOutbound, ChannelStreamOutbound, StreamEvent, StreamReceiver,
+    },
+    moltis_common::types::ReplyPayload,
+};
+
+use crate::{
+    markdown::{DISCORD_MAX_MESSAGE_LEN, chunk_message, truncate_with_ellipsis},
+    state::AccountStateMap,
+};
+
+/// Outbound message sender for Discord.
+pub struct DiscordOutbound {
+    pub(crate) accounts: AccountStateMap,
+}
+
+impl DiscordOutbound {
+    fn get_http(&self, account_id: &str) -> Result<Arc<Http>> {
+        let accounts = self.accounts.read().unwrap();
+        accounts
+            .get(account_id)
+            .map(|s| s.http.clone())
+            .ok_or_else(|| anyhow::anyhow!("unknown account: {account_id}"))
+    }
+
+    fn get_pending_reply(&self, account_id: &str, channel_id: &str) -> Option<u64> {
+        let accounts = self.accounts.read().unwrap();
+        accounts
+            .get(account_id)
+            .and_then(|s| s.pending_replies.get(channel_id).copied())
+    }
+
+    fn get_throttle_ms(&self, account_id: &str) -> u64 {
+        let accounts = self.accounts.read().unwrap();
+        accounts
+            .get(account_id)
+            .map(|s| s.config.edit_throttle_ms)
+            .unwrap_or(500)
+    }
+}
+
+#[async_trait]
+impl ChannelOutbound for DiscordOutbound {
+    async fn send_text(&self, account_id: &str, to: &str, text: &str) -> Result<()> {
+        let http = self.get_http(account_id)?;
+        let channel_id: u64 = to.parse()?;
+        let channel = ChannelId::new(channel_id);
+
+        let reply_to = self.get_pending_reply(account_id, to);
+        let chunks = chunk_message(text, DISCORD_MAX_MESSAGE_LEN);
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            let mut builder = CreateMessage::new().content(chunk);
+
+            // Reply to original message on first chunk
+            if i == 0
+                && let Some(msg_id) = reply_to
+            {
+                builder = builder.reference_message((channel, MessageId::new(msg_id)));
+            }
+
+            channel.send_message(&http, builder).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn send_typing(&self, account_id: &str, to: &str) -> Result<()> {
+        let http = self.get_http(account_id)?;
+        let channel_id: u64 = to.parse()?;
+        ChannelId::new(channel_id).broadcast_typing(&http).await?;
+        Ok(())
+    }
+
+    async fn send_media(&self, account_id: &str, to: &str, payload: &ReplyPayload) -> Result<()> {
+        // For now, just send the text content. Media requires attachment API.
+        if !payload.text.is_empty() {
+            self.send_text(account_id, to, &payload.text).await?;
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ChannelStreamOutbound for DiscordOutbound {
+    async fn send_stream(
+        &self,
+        account_id: &str,
+        to: &str,
+        mut stream: StreamReceiver,
+    ) -> Result<()> {
+        let http = self.get_http(account_id)?;
+        let channel_id: u64 = to.parse()?;
+        let channel = ChannelId::new(channel_id);
+        let throttle_ms = self.get_throttle_ms(account_id);
+
+        // Send typing indicator
+        let _ = channel.broadcast_typing(&http).await;
+
+        // Send initial placeholder
+        let reply_to = self.get_pending_reply(account_id, to);
+        let mut builder = CreateMessage::new().content("...");
+        if let Some(msg_id) = reply_to {
+            builder = builder.reference_message((channel, MessageId::new(msg_id)));
+        }
+
+        let initial_msg = channel.send_message(&http, builder).await?;
+        let message_id = initial_msg.id;
+
+        let mut accumulated = String::new();
+        let mut last_edit = tokio::time::Instant::now();
+        let throttle = Duration::from_millis(throttle_ms);
+
+        while let Some(event) = stream.recv().await {
+            match event {
+                StreamEvent::Delta(delta) => {
+                    accumulated.push_str(&delta);
+                    if last_edit.elapsed() >= throttle {
+                        // Truncate for display during streaming
+                        let display = truncate_with_ellipsis(&accumulated, DISCORD_MAX_MESSAGE_LEN);
+
+                        let _ = channel
+                            .edit_message(&http, message_id, EditMessage::new().content(&display))
+                            .await;
+                        last_edit = tokio::time::Instant::now();
+                    }
+                },
+                StreamEvent::Done => {
+                    break;
+                },
+                StreamEvent::Error(e) => {
+                    debug!("stream error: {e}");
+                    accumulated.push_str(&format!("\n\n:warning: Error: {e}"));
+                    break;
+                },
+            }
+        }
+
+        // Final update with complete content
+        if !accumulated.is_empty() {
+            if accumulated.len() <= DISCORD_MAX_MESSAGE_LEN {
+                // Fits in one message, just edit
+                let _ = channel
+                    .edit_message(&http, message_id, EditMessage::new().content(&accumulated))
+                    .await;
+            } else {
+                // Need to split - delete placeholder and send chunks
+                let _ = channel.delete_message(&http, message_id).await;
+
+                let chunks = chunk_message(&accumulated, DISCORD_MAX_MESSAGE_LEN);
+                for chunk in chunks {
+                    channel
+                        .send_message(&http, CreateMessage::new().content(&chunk))
+                        .await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
