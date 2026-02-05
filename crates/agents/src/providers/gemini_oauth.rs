@@ -1,21 +1,26 @@
 //! Google Gemini OAuth provider.
 //!
-//! Authentication uses Google's device-flow OAuth to obtain an access token,
-//! which is then used to call the Gemini API.
+//! Authentication uses Authorization Code Flow with PKCE to obtain an access token,
+//! which is then used to call the Gemini API. Users authenticate with their Google
+//! account, and API usage is billed to their account (not to the application developer).
 //!
-//! Users need to:
-//! 1. Create a Google Cloud project
-//! 2. Enable the Generative Language API
-//! 3. Create OAuth 2.0 credentials (Desktop app or TV/Limited Input Device)
-//! 4. Set GOOGLE_CLIENT_ID and optionally GOOGLE_CLIENT_SECRET environment variables
+//! The OAuth flow:
+//! 1. Open browser to Google OAuth consent screen
+//! 2. User authenticates with their Google account
+//! 3. Browser redirects to local callback server with authorization code
+//! 4. Exchange code for tokens using PKCE verifier
+//! 5. Store tokens securely for future use
 
 use std::pin::Pin;
 
 use {
     async_trait::async_trait,
     futures::StreamExt,
-    moltis_oauth::{OAuthTokens, TokenStore},
-    secrecy::{ExposeSecret, Secret},
+    moltis_oauth::{
+        CallbackServer, OAuthConfig, OAuthFlow, OAuthTokens, TokenStore, callback_port,
+        load_oauth_config,
+    },
+    secrecy::ExposeSecret,
     tokio_stream::Stream,
     tracing::{debug, trace, warn},
 };
@@ -24,37 +29,11 @@ use crate::model::{CompletionResponse, LlmProvider, StreamEvent, ToolCall, Usage
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const GOOGLE_DEVICE_CODE_URL: &str = "https://oauth2.googleapis.com/device/code";
-const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com";
-
-/// OAuth scope for Gemini API access.
-const GEMINI_SCOPE: &str = "https://www.googleapis.com/auth/generative-language.retriever https://www.googleapis.com/auth/cloud-platform";
-
 const PROVIDER_NAME: &str = "gemini-oauth";
 
 /// Buffer before token expiry to trigger refresh (5 minutes).
 const REFRESH_THRESHOLD_SECS: u64 = 300;
-
-// ── Device flow types ────────────────────────────────────────────────────────
-
-#[derive(Debug, serde::Deserialize)]
-pub struct DeviceCodeResponse {
-    pub device_code: String,
-    pub user_code: String,
-    pub verification_url: String,
-    pub interval: u64,
-    pub expires_in: u64,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct GoogleTokenResponse {
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-    expires_in: Option<u64>,
-    error: Option<String>,
-    error_description: Option<String>,
-}
 
 // ── Provider ─────────────────────────────────────────────────────────────────
 
@@ -73,161 +52,53 @@ impl GeminiOAuthProvider {
         }
     }
 
-    /// Get the Google client ID from environment.
-    /// Users must set GOOGLE_CLIENT_ID from their Google Cloud project.
-    pub fn get_client_id() -> Option<String> {
-        std::env::var("GOOGLE_CLIENT_ID")
-            .ok()
-            .filter(|s| !s.is_empty())
+    /// Get the OAuth configuration for Gemini.
+    pub fn oauth_config() -> Option<OAuthConfig> {
+        load_oauth_config(PROVIDER_NAME)
     }
 
-    /// Get the optional Google client secret from environment.
-    pub fn get_client_secret() -> Option<String> {
-        std::env::var("GOOGLE_CLIENT_SECRET")
-            .ok()
-            .filter(|s| !s.is_empty())
+    /// Start the OAuth flow: returns the authorization URL to open in the browser.
+    /// Also returns the PKCE verifier and state for later token exchange.
+    pub fn start_auth_flow() -> Option<AuthFlowState> {
+        let config = Self::oauth_config()?;
+        let flow = OAuthFlow::new(config.clone());
+        let auth_request = flow.start();
+
+        Some(AuthFlowState {
+            auth_url: auth_request.url,
+            pkce_verifier: auth_request.pkce.verifier,
+            state: auth_request.state,
+            config,
+        })
     }
 
-    /// Start the Google device-flow: request a device code.
-    pub async fn request_device_code(
-        client: &reqwest::Client,
-    ) -> anyhow::Result<DeviceCodeResponse> {
-        let client_id = Self::get_client_id()
-            .ok_or_else(|| anyhow::anyhow!("GOOGLE_CLIENT_ID environment variable not set"))?;
+    /// Wait for the OAuth callback and exchange the code for tokens.
+    pub async fn complete_auth_flow(flow_state: &AuthFlowState) -> anyhow::Result<OAuthTokens> {
+        let port = callback_port(&flow_state.config);
 
-        let resp = client
-            .post(GOOGLE_DEVICE_CODE_URL)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .form(&[("client_id", client_id.as_str()), ("scope", GEMINI_SCOPE)])
-            .send()
-            .await?;
+        // Wait for the callback with the authorization code
+        let code = CallbackServer::wait_for_code(port, flow_state.state.clone()).await?;
 
-        if !resp.status().is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Google device code request failed: {body}");
-        }
+        // Exchange the code for tokens
+        let flow = OAuthFlow::new(flow_state.config.clone());
+        let tokens = flow.exchange(&code, &flow_state.pkce_verifier).await?;
 
-        Ok(resp.json().await?)
-    }
-
-    /// Poll Google for the access token after the user has entered the code.
-    pub async fn poll_for_token(
-        client: &reqwest::Client,
-        device_code: &str,
-        interval: u64,
-    ) -> anyhow::Result<OAuthTokens> {
-        let client_id = Self::get_client_id()
-            .ok_or_else(|| anyhow::anyhow!("GOOGLE_CLIENT_ID environment variable not set"))?;
-        let client_secret = Self::get_client_secret();
-
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-
-            let mut form_params = vec![
-                ("client_id", client_id.clone()),
-                ("device_code", device_code.to_string()),
-                (
-                    "grant_type",
-                    "urn:ietf:params:oauth:grant-type:device_code".to_string(),
-                ),
-            ];
-
-            if let Some(ref secret) = client_secret {
-                form_params.push(("client_secret", secret.clone()));
-            }
-
-            let resp = client
-                .post(GOOGLE_TOKEN_URL)
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .form(&form_params)
-                .send()
-                .await?;
-
-            let body: GoogleTokenResponse = resp.json().await?;
-
-            if let Some(token) = body.access_token {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-
-                return Ok(OAuthTokens {
-                    access_token: Secret::new(token),
-                    refresh_token: body.refresh_token.map(Secret::new),
-                    expires_at: body.expires_in.map(|e| now + e),
-                });
-            }
-
-            match body.error.as_deref() {
-                Some("authorization_pending") => continue,
-                Some("slow_down") => {
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    continue;
-                },
-                Some(err) => {
-                    let desc = body.error_description.unwrap_or_default();
-                    anyhow::bail!("Google device flow error: {err} - {desc}");
-                },
-                None => anyhow::bail!("unexpected response from Google token endpoint"),
-            }
-        }
+        Ok(tokens)
     }
 
     /// Refresh the access token using the refresh token.
     async fn refresh_access_token(&self, refresh_token: &str) -> anyhow::Result<OAuthTokens> {
-        let client_id = Self::get_client_id()
-            .ok_or_else(|| anyhow::anyhow!("GOOGLE_CLIENT_ID environment variable not set"))?;
-        let client_secret = Self::get_client_secret();
+        let config = Self::oauth_config()
+            .ok_or_else(|| anyhow::anyhow!("gemini-oauth configuration not found"))?;
 
-        let mut form_params = vec![
-            ("client_id", client_id),
-            ("refresh_token", refresh_token.to_string()),
-            ("grant_type", "refresh_token".to_string()),
-        ];
-
-        if let Some(secret) = client_secret {
-            form_params.push(("client_secret", secret));
-        }
-
-        let resp = self
-            .client
-            .post(GOOGLE_TOKEN_URL)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .form(&form_params)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Google token refresh failed: {body}");
-        }
-
-        let body: GoogleTokenResponse = resp.json().await?;
-
-        let access_token = body
-            .access_token
-            .ok_or_else(|| anyhow::anyhow!("no access_token in refresh response"))?;
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        Ok(OAuthTokens {
-            access_token: Secret::new(access_token),
-            // Google may or may not return a new refresh token
-            refresh_token: body
-                .refresh_token
-                .map(Secret::new)
-                .or_else(|| Some(Secret::new(refresh_token.to_string()))),
-            expires_at: body.expires_in.map(|e| now + e),
-        })
+        let flow = OAuthFlow::new(config);
+        flow.refresh(refresh_token).await
     }
 
     /// Get a valid access token, refreshing if needed.
     async fn get_valid_token(&self) -> anyhow::Result<String> {
         let tokens = self.token_store.load(PROVIDER_NAME).ok_or_else(|| {
-            anyhow::anyhow!("not logged in to gemini-oauth — run OAuth device flow first")
+            anyhow::anyhow!("not logged in to gemini-oauth — run OAuth flow first")
         })?;
 
         // Check if token needs refresh
@@ -252,6 +123,14 @@ impl GeminiOAuthProvider {
 
         Ok(tokens.access_token.expose_secret().clone())
     }
+}
+
+/// State needed to complete the OAuth flow after user authorization.
+pub struct AuthFlowState {
+    pub auth_url: String,
+    pub pkce_verifier: String,
+    pub state: String,
+    config: OAuthConfig,
 }
 
 /// Check if we have stored tokens for Google Gemini OAuth.
@@ -709,6 +588,16 @@ mod tests {
         assert_eq!(provider.name(), "gemini-oauth");
         assert_eq!(provider.id(), "gemini-2.0-flash");
         assert!(provider.supports_tools());
+    }
+
+    #[test]
+    fn oauth_config_loads() {
+        // Should return Some since we have a default config
+        let config = GeminiOAuthProvider::oauth_config();
+        assert!(config.is_some());
+        let config = config.unwrap();
+        assert!(!config.device_flow);
+        assert!(config.redirect_uri.contains("localhost"));
     }
 
     #[test]

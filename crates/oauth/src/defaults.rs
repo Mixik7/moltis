@@ -43,6 +43,28 @@ fn builtin_defaults() -> HashMap<String, OAuthConfig> {
         ],
         device_flow: false,
     });
+    // Google Gemini uses Authorization Code + PKCE flow.
+    // Users authenticate with their Google account; API usage is billed to their account.
+    // The client_id is a public identifier (not secret) for the Moltis application.
+    m.insert("gemini-oauth".into(), OAuthConfig {
+        // TODO: Replace with actual Moltis client ID from Google Cloud Console
+        client_id: "MOLTIS_GEMINI_CLIENT_ID".into(),
+        auth_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
+        token_url: "https://oauth2.googleapis.com/token".into(),
+        redirect_uri: "http://localhost:1456/auth/callback".into(),
+        scopes: vec![
+            // Scope for Gemini API access
+            "https://www.googleapis.com/auth/generative-language.retriever".into(),
+            "https://www.googleapis.com/auth/cloud-platform".into(),
+        ],
+        extra_auth_params: vec![
+            // Request offline access to get a refresh token
+            ("access_type".into(), "offline".into()),
+            // Force consent screen to always show (ensures refresh token)
+            ("prompt".into(), "consent".into()),
+        ],
+        device_flow: false,
+    });
     m
 }
 
@@ -151,5 +173,18 @@ mod tests {
     fn callback_port_with_redirect_uri() {
         let config = load_oauth_config("openai-codex").unwrap();
         assert_eq!(callback_port(&config), 1455);
+    }
+
+    #[test]
+    fn load_gemini_oauth_config() {
+        let config = load_oauth_config("gemini-oauth").expect("should have gemini-oauth");
+        assert!(!config.device_flow);
+        assert!(!config.redirect_uri.is_empty());
+        assert_eq!(
+            config.auth_url,
+            "https://accounts.google.com/o/oauth2/v2/auth"
+        );
+        assert_eq!(config.token_url, "https://oauth2.googleapis.com/token");
+        assert_eq!(callback_port(&config), 1456);
     }
 }

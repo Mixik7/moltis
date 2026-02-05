@@ -537,11 +537,6 @@ impl ProviderRegistry {
             return;
         }
 
-        // Require GOOGLE_CLIENT_ID to be set
-        if gemini_oauth::GeminiOAuthProvider::get_client_id().is_none() {
-            return;
-        }
-
         if !gemini_oauth::has_stored_tokens() {
             return;
         }
