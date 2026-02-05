@@ -542,6 +542,258 @@ function EnvironmentSection() {
 
 // ── Security section ─────────────────────────────────────────
 
+function PasswordFormSection({
+	hasPassword,
+	curPw,
+	setCurPw,
+	newPw,
+	setNewPw,
+	confirmPw,
+	setConfirmPw,
+	pwSaving,
+	pwMsg,
+	pwErr,
+	onChangePw,
+}) {
+	return html`<div style="max-width:600px;">
+		<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">${hasPassword ? "Change Password" : "Set Password"}</h3>
+		<form onSubmit=${onChangePw}>
+			<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;">
+				${
+					hasPassword
+						? html`<div>
+					<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Current password</div>
+					<input type="password" class="provider-key-input" style="width:100%;" value=${curPw}
+						onInput=${(e) => setCurPw(e.target.value)} />
+				</div>`
+						: null
+				}
+				<div>
+					<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">${hasPassword ? "New password" : "Password"}</div>
+					<input type="password" class="provider-key-input" style="width:100%;" value=${newPw}
+						onInput=${(e) => setNewPw(e.target.value)} placeholder="At least 8 characters" />
+				</div>
+				<div>
+					<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Confirm ${hasPassword ? "new " : ""}password</div>
+					<input type="password" class="provider-key-input" style="width:100%;" value=${confirmPw}
+						onInput=${(e) => setConfirmPw(e.target.value)} />
+				</div>
+			</div>
+			<div style="display:flex;align-items:center;gap:8px;">
+				<button type="submit" class="provider-btn" disabled=${pwSaving}>
+					${pwSaving ? (hasPassword ? "Changing\u2026" : "Setting\u2026") : hasPassword ? "Change password" : "Set password"}
+				</button>
+				${pwMsg ? html`<span class="text-xs" style="color:var(--accent);">${pwMsg}</span>` : null}
+				${pwErr ? html`<span class="text-xs" style="color:var(--error);">${pwErr}</span>` : null}
+			</div>
+		</form>
+	</div>`;
+}
+
+function PasskeyItem({
+	pk,
+	editingPk,
+	editingPkName,
+	setEditingPkName,
+	onConfirmRename,
+	onCancelRename,
+	onStartRename,
+	onRemovePasskey,
+}) {
+	if (editingPk === pk.id) {
+		return html`<div class="provider-item" style="margin-bottom:0;" key=${pk.id}>
+			<form style="display:flex;align-items:center;gap:6px;flex:1" onSubmit=${(e) => {
+				e.preventDefault();
+				onConfirmRename(pk.id);
+			}}>
+				<input type="text" class="provider-key-input" value=${editingPkName}
+					onInput=${(e) => setEditingPkName(e.target.value)} style="flex:1" autofocus />
+				<button type="submit" class="provider-btn">Save</button>
+				<button type="button" class="provider-btn" onClick=${onCancelRename}>Cancel</button>
+			</form>
+		</div>`;
+	}
+	return html`<div class="provider-item" style="margin-bottom:0;" key=${pk.id}>
+		<div style="flex:1;min-width:0;">
+			<div class="provider-item-name" style="font-size:.85rem;">${pk.name}</div>
+			<div style="font-size:.7rem;color:var(--muted);margin-top:2px;">${pk.created_at}</div>
+		</div>
+		<div style="display:flex;gap:4px;">
+			<button class="provider-btn" onClick=${() => onStartRename(pk.id, pk.name)}>Rename</button>
+			<button class="provider-btn provider-btn-danger" onClick=${() => onRemovePasskey(pk.id)}>Remove</button>
+		</div>
+	</div>`;
+}
+
+function PasskeysSection(props) {
+	var {
+		passkeys,
+		pkLoading,
+		pkName,
+		setPkName,
+		pkMsg,
+		editingPk,
+		editingPkName,
+		setEditingPkName,
+		onConfirmRename,
+		onCancelRename,
+		onStartRename,
+		onRemovePasskey,
+		onAddPasskey,
+	} = props;
+	return html`<div style="max-width:600px;border-top:1px solid var(--border);padding-top:16px;">
+		<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">Passkeys</h3>
+		${
+			pkLoading
+				? html`<div class="text-xs text-[var(--muted)]">Loading\u2026</div>`
+				: html`
+			${
+				passkeys.length > 0
+					? html`<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">
+				${passkeys.map(
+					(pk) => html`<${PasskeyItem} key=${pk.id} pk=${pk} editingPk=${editingPk} editingPkName=${editingPkName}
+					setEditingPkName=${setEditingPkName} onConfirmRename=${onConfirmRename} onCancelRename=${onCancelRename}
+					onStartRename=${onStartRename} onRemovePasskey=${onRemovePasskey} />`,
+				)}
+			</div>`
+					: html`<div class="text-xs text-[var(--muted)]" style="padding:4px 0 12px;">No passkeys registered.</div>`
+			}
+			<div style="display:flex;gap:8px;align-items:center;">
+				<input type="text" class="provider-key-input" value=${pkName}
+					onInput=${(e) => setPkName(e.target.value)}
+					placeholder="Passkey name (e.g. MacBook Touch ID)" style="flex:1" />
+				<button type="button" class="provider-btn" onClick=${onAddPasskey}>Add passkey</button>
+			</div>
+			${pkMsg ? html`<div class="text-xs text-[var(--muted)]" style="margin-top:6px;">${pkMsg}</div>` : null}
+		`
+		}
+	</div>`;
+}
+
+function ApiKeyItem({ ak, onRevokeApiKey }) {
+	return html`<div class="provider-item" style="margin-bottom:0;" key=${ak.id}>
+		<div style="flex:1;min-width:0;">
+			<div class="provider-item-name" style="font-size:.85rem;">${ak.label}</div>
+			<div style="font-size:.7rem;color:var(--muted);margin-top:2px;display:flex;gap:12px;flex-wrap:wrap;">
+				<span style="font-family:var(--font-mono);">${ak.key_prefix}...</span>
+				<span>${ak.created_at}</span>
+				${ak.scopes ? html`<span style="color:var(--accent);">${ak.scopes.join(", ")}</span>` : html`<span style="color:var(--accent);">Full access</span>`}
+			</div>
+		</div>
+		<button class="provider-btn provider-btn-danger" onClick=${() => onRevokeApiKey(ak.id)}>Revoke</button>
+	</div>`;
+}
+
+function ApiKeyScopeCheckbox({ scope, label, description, akScopes, toggleScope }) {
+	return html`<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+		<input type="checkbox" checked=${akScopes[scope]} onChange=${() => toggleScope(scope)} />
+		<span class="text-xs text-[var(--text)]">${label}</span>
+		<span class="text-xs text-[var(--muted)]">\u2014 ${description}</span>
+	</label>`;
+}
+
+function ApiKeysSection(props) {
+	var {
+		apiKeys,
+		akLoading,
+		akNew,
+		akLabel,
+		setAkLabel,
+		akFullAccess,
+		setAkFullAccess,
+		akScopes,
+		toggleScope,
+		onCreateApiKey,
+		onRevokeApiKey,
+	} = props;
+	var canGenerate = akLabel.trim() && (akFullAccess || Object.values(akScopes).some((v) => v));
+	return html`<div style="max-width:600px;border-top:1px solid var(--border);padding-top:16px;">
+		<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:4px;">API Keys</h3>
+		<p class="text-xs text-[var(--muted)] leading-relaxed" style="margin:0 0 12px;">
+			API keys authenticate external tools and scripts connecting to moltis over the WebSocket protocol. Pass the key as the <code style="font-family:var(--font-mono);font-size:.75rem;">api_key</code> field in the <code style="font-family:var(--font-mono);font-size:.75rem;">auth</code> object of the <code style="font-family:var(--font-mono);font-size:.75rem;">connect</code> handshake.
+		</p>
+		${
+			akLoading
+				? html`<div class="text-xs text-[var(--muted)]">Loading\u2026</div>`
+				: html`
+			${
+				akNew
+					? html`<div style="margin-bottom:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">
+				<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Copy this key now. It won't be shown again.</div>
+				<code style="font-family:var(--font-mono);font-size:.78rem;word-break:break-all;color:var(--text-strong);">${akNew}</code>
+			</div>`
+					: null
+			}
+			${
+				apiKeys.length > 0
+					? html`<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">
+				${apiKeys.map((ak) => html`<${ApiKeyItem} key=${ak.id} ak=${ak} onRevokeApiKey=${onRevokeApiKey} />`)}
+			</div>`
+					: html`<div class="text-xs text-[var(--muted)]" style="padding:4px 0 12px;">No API keys.</div>`
+			}
+			<div style="display:flex;flex-direction:column;gap:10px;">
+				<div style="display:flex;gap:8px;align-items:center;">
+					<input type="text" class="provider-key-input" value=${akLabel}
+						onInput=${(e) => setAkLabel(e.target.value)}
+						placeholder="Key label (e.g. CLI tool)" style="flex:1" />
+				</div>
+				<div>
+					<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+						<input type="checkbox" checked=${akFullAccess} onChange=${() => {
+							setAkFullAccess(!akFullAccess);
+							rerender();
+						}} />
+						<span class="text-xs text-[var(--text)]">Full access (all permissions)</span>
+					</label>
+				</div>
+				${
+					akFullAccess
+						? null
+						: html`<div style="padding-left:20px;display:flex;flex-direction:column;gap:6px;">
+					<div class="text-xs text-[var(--muted)]" style="margin-bottom:2px;">Select permissions:</div>
+					<${ApiKeyScopeCheckbox} scope="operator.read" label="operator.read" description="View data and status" akScopes=${akScopes} toggleScope=${toggleScope} />
+					<${ApiKeyScopeCheckbox} scope="operator.write" label="operator.write" description="Create, update, delete" akScopes=${akScopes} toggleScope=${toggleScope} />
+					<${ApiKeyScopeCheckbox} scope="operator.approvals" label="operator.approvals" description="Handle exec approvals" akScopes=${akScopes} toggleScope=${toggleScope} />
+					<${ApiKeyScopeCheckbox} scope="operator.pairing" label="operator.pairing" description="Device/node pairing" akScopes=${akScopes} toggleScope=${toggleScope} />
+				</div>`
+				}
+				<div>
+					<button type="button" class="provider-btn" onClick=${onCreateApiKey} disabled=${!canGenerate}>Generate key</button>
+				</div>
+			</div>
+		`
+		}
+	</div>`;
+}
+
+function DangerZoneSection({ resetConfirm, setResetConfirm, resetBusy, onResetAuth }) {
+	return html`<div style="max-width:600px;margin-top:8px;border-top:1px solid var(--error);padding-top:16px;">
+		<h3 class="text-sm font-medium" style="color:var(--error);margin-bottom:8px;">Danger Zone</h3>
+		<div style="padding:12px 16px;border:1px solid var(--error);border-radius:6px;background:color-mix(in srgb, var(--error) 5%, transparent);">
+			<strong class="text-sm" style="color:var(--text-strong);">Remove all authentication</strong>
+			<p class="text-xs text-[var(--muted)]" style="margin:6px 0 0;">
+				If you know what you're doing, you can fully disable authentication.
+				Anyone with network access will be able to access moltis and your computer.
+				This removes your password, all passkeys, all API keys, and all sessions.
+			</p>
+			${
+				resetConfirm
+					? html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+				<span class="text-xs" style="color:var(--error);">Are you sure? This cannot be undone.</span>
+				<button type="button" class="provider-btn provider-btn-danger" disabled=${resetBusy}
+					onClick=${onResetAuth}>${resetBusy ? "Removing\u2026" : "Yes, remove all auth"}</button>
+				<button type="button" class="provider-btn" onClick=${() => {
+					setResetConfirm(false);
+					rerender();
+				}}>Cancel</button>
+			</div>`
+					: html`<button type="button" class="provider-btn provider-btn-danger" style="margin-top:10px;"
+				onClick=${onResetAuth}>Remove all authentication</button>`
+			}
+		</div>
+	</div>`;
+}
+
 function SecuritySection() {
 	var [authDisabled, setAuthDisabled] = useState(false);
 	var [localhostOnly, setLocalhostOnly] = useState(false);
@@ -863,220 +1115,29 @@ function SecuritySection() {
 		${
 			localhostOnly && !hasPassword
 				? html`<div class="alert-info-text max-w-form">
-					<span class="alert-label-info">Note:</span>${" "}
-					Moltis is running on localhost, so you have full access without a password.
-					Set a password before exposing moltis to the network.
-				</div>`
+			<span class="alert-label-info">Note:</span>${" "}
+			Moltis is running on localhost, so you have full access without a password.
+			Set a password before exposing moltis to the network.
+		</div>`
 				: null
 		}
 
-		<!-- Password -->
-		<div style="max-width:600px;">
-			<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">${hasPassword ? "Change Password" : "Set Password"}</h3>
-			<form onSubmit=${onChangePw}>
-				<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;">
-					${
-						hasPassword
-							? html`<div>
-								<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Current password</div>
-								<input type="password" class="provider-key-input" style="width:100%;" value=${curPw}
-									onInput=${(e) => setCurPw(e.target.value)} />
-							</div>`
-							: null
-					}
-					<div>
-						<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">${hasPassword ? "New password" : "Password"}</div>
-						<input type="password" class="provider-key-input" style="width:100%;" value=${newPw}
-							onInput=${(e) => setNewPw(e.target.value)} placeholder="At least 8 characters" />
-					</div>
-					<div>
-						<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Confirm ${hasPassword ? "new " : ""}password</div>
-						<input type="password" class="provider-key-input" style="width:100%;" value=${confirmPw}
-							onInput=${(e) => setConfirmPw(e.target.value)} />
-					</div>
-				</div>
-				<div style="display:flex;align-items:center;gap:8px;">
-					<button type="submit" class="provider-btn" disabled=${pwSaving}>
-						${pwSaving ? (hasPassword ? "Changing\u2026" : "Setting\u2026") : hasPassword ? "Change password" : "Set password"}
-					</button>
-					${pwMsg ? html`<span class="text-xs" style="color:var(--accent);">${pwMsg}</span>` : null}
-					${pwErr ? html`<span class="text-xs" style="color:var(--error);">${pwErr}</span>` : null}
-				</div>
-			</form>
-		</div>
+		<${PasswordFormSection} hasPassword=${hasPassword} curPw=${curPw} setCurPw=${setCurPw}
+			newPw=${newPw} setNewPw=${setNewPw} confirmPw=${confirmPw} setConfirmPw=${setConfirmPw}
+			pwSaving=${pwSaving} pwMsg=${pwMsg} pwErr=${pwErr} onChangePw=${onChangePw} />
 
-		<!-- Passkeys -->
-		<div style="max-width:600px;border-top:1px solid var(--border);padding-top:16px;">
-			<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">Passkeys</h3>
-			${
-				pkLoading
-					? html`<div class="text-xs text-[var(--muted)]">Loading\u2026</div>`
-					: html`
-				${
-					passkeys.length > 0
-						? html`<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">
-					${passkeys.map(
-						(pk) => html`<div class="provider-item" style="margin-bottom:0;" key=${pk.id}>
-						${
-							editingPk === pk.id
-								? html`<form style="display:flex;align-items:center;gap:6px;flex:1" onSubmit=${(e) => {
-										e.preventDefault();
-										onConfirmRename(pk.id);
-									}}>
-									<input type="text" class="provider-key-input" value=${editingPkName}
-										onInput=${(e) => setEditingPkName(e.target.value)}
-										style="flex:1" autofocus />
-									<button type="submit" class="provider-btn">Save</button>
-									<button type="button" class="provider-btn" onClick=${onCancelRename}>Cancel</button>
-								</form>`
-								: html`<div style="flex:1;min-width:0;">
-									<div class="provider-item-name" style="font-size:.85rem;">${pk.name}</div>
-									<div style="font-size:.7rem;color:var(--muted);margin-top:2px;">${pk.created_at}</div>
-								</div>
-								<div style="display:flex;gap:4px;">
-									<button class="provider-btn" onClick=${() => onStartRename(pk.id, pk.name)}>Rename</button>
-									<button class="provider-btn provider-btn-danger"
-										onClick=${() => onRemovePasskey(pk.id)}>Remove</button>
-								</div>`
-						}
-					</div>`,
-					)}
-				</div>`
-						: html`<div class="text-xs text-[var(--muted)]" style="padding:4px 0 12px;">No passkeys registered.</div>`
-				}
-				<div style="display:flex;gap:8px;align-items:center;">
-					<input type="text" class="provider-key-input" value=${pkName}
-						onInput=${(e) => setPkName(e.target.value)}
-						placeholder="Passkey name (e.g. MacBook Touch ID)" style="flex:1" />
-					<button type="button" class="provider-btn" onClick=${onAddPasskey}>Add passkey</button>
-				</div>
-				${pkMsg ? html`<div class="text-xs text-[var(--muted)]" style="margin-top:6px;">${pkMsg}</div>` : null}
-			`
-			}
-		</div>
+		<${PasskeysSection} passkeys=${passkeys} pkLoading=${pkLoading} pkName=${pkName} setPkName=${setPkName}
+			pkMsg=${pkMsg} editingPk=${editingPk} editingPkName=${editingPkName} setEditingPkName=${setEditingPkName}
+			onConfirmRename=${onConfirmRename} onCancelRename=${onCancelRename} onStartRename=${onStartRename}
+			onRemovePasskey=${onRemovePasskey} onAddPasskey=${onAddPasskey} />
 
-		<!-- API Keys -->
-		<div style="max-width:600px;border-top:1px solid var(--border);padding-top:16px;">
-			<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:4px;">API Keys</h3>
-			<p class="text-xs text-[var(--muted)] leading-relaxed" style="margin:0 0 12px;">
-				API keys authenticate external tools and scripts connecting to moltis over the WebSocket protocol. Pass the key as the <code style="font-family:var(--font-mono);font-size:.75rem;">api_key</code> field in the <code style="font-family:var(--font-mono);font-size:.75rem;">auth</code> object of the <code style="font-family:var(--font-mono);font-size:.75rem;">connect</code> handshake.
-			</p>
-			${
-				akLoading
-					? html`<div class="text-xs text-[var(--muted)]">Loading\u2026</div>`
-					: html`
-				${
-					akNew
-						? html`<div style="margin-bottom:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">
-							<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Copy this key now. It won't be shown again.</div>
-							<code style="font-family:var(--font-mono);font-size:.78rem;word-break:break-all;color:var(--text-strong);">${akNew}</code>
-						</div>`
-						: null
-				}
-				${
-					apiKeys.length > 0
-						? html`<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">
-					${apiKeys.map(
-						(ak) => html`<div class="provider-item" style="margin-bottom:0;" key=${ak.id}>
-						<div style="flex:1;min-width:0;">
-							<div class="provider-item-name" style="font-size:.85rem;">${ak.label}</div>
-							<div style="font-size:.7rem;color:var(--muted);margin-top:2px;display:flex;gap:12px;flex-wrap:wrap;">
-								<span style="font-family:var(--font-mono);">${ak.key_prefix}...</span>
-								<span>${ak.created_at}</span>
-								${ak.scopes ? html`<span style="color:var(--accent);">${ak.scopes.join(", ")}</span>` : html`<span style="color:var(--accent);">Full access</span>`}
-							</div>
-						</div>
-						<button class="provider-btn provider-btn-danger"
-							onClick=${() => onRevokeApiKey(ak.id)}>Revoke</button>
-					</div>`,
-					)}
-				</div>`
-						: html`<div class="text-xs text-[var(--muted)]" style="padding:4px 0 12px;">No API keys.</div>`
-				}
-				<div style="display:flex;flex-direction:column;gap:10px;">
-					<div style="display:flex;gap:8px;align-items:center;">
-						<input type="text" class="provider-key-input" value=${akLabel}
-							onInput=${(e) => setAkLabel(e.target.value)}
-							placeholder="Key label (e.g. CLI tool)" style="flex:1" />
-					</div>
-					<div>
-						<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-							<input type="checkbox" checked=${akFullAccess}
-								onChange=${() => {
-									setAkFullAccess(!akFullAccess);
-									rerender();
-								}} />
-							<span class="text-xs text-[var(--text)]">Full access (all permissions)</span>
-						</label>
-					</div>
-					${
-						akFullAccess
-							? null
-							: html`<div style="padding-left:20px;display:flex;flex-direction:column;gap:6px;">
-							<div class="text-xs text-[var(--muted)]" style="margin-bottom:2px;">Select permissions:</div>
-							<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-								<input type="checkbox" checked=${akScopes["operator.read"]}
-									onChange=${() => toggleScope("operator.read")} />
-								<span class="text-xs text-[var(--text)]">operator.read</span>
-								<span class="text-xs text-[var(--muted)]">\u2014 View data and status</span>
-							</label>
-							<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-								<input type="checkbox" checked=${akScopes["operator.write"]}
-									onChange=${() => toggleScope("operator.write")} />
-								<span class="text-xs text-[var(--text)]">operator.write</span>
-								<span class="text-xs text-[var(--muted)]">\u2014 Create, update, delete</span>
-							</label>
-							<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-								<input type="checkbox" checked=${akScopes["operator.approvals"]}
-									onChange=${() => toggleScope("operator.approvals")} />
-								<span class="text-xs text-[var(--text)]">operator.approvals</span>
-								<span class="text-xs text-[var(--muted)]">\u2014 Handle exec approvals</span>
-							</label>
-							<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-								<input type="checkbox" checked=${akScopes["operator.pairing"]}
-									onChange=${() => toggleScope("operator.pairing")} />
-								<span class="text-xs text-[var(--text)]">operator.pairing</span>
-								<span class="text-xs text-[var(--muted)]">\u2014 Device/node pairing</span>
-							</label>
-						</div>`
-					}
-					<div>
-						<button type="button" class="provider-btn" onClick=${onCreateApiKey}
-							disabled=${!akLabel.trim() || !(akFullAccess || Object.values(akScopes).some((v) => v))}>
-							Generate key
-						</button>
-					</div>
-				</div>
-			`
-			}
-		</div>
+		<${ApiKeysSection} apiKeys=${apiKeys} akLoading=${akLoading} akNew=${akNew} akLabel=${akLabel}
+			setAkLabel=${setAkLabel} akFullAccess=${akFullAccess} setAkFullAccess=${setAkFullAccess}
+			akScopes=${akScopes} toggleScope=${toggleScope} onCreateApiKey=${onCreateApiKey}
+			onRevokeApiKey=${onRevokeApiKey} />
 
-		<!-- Danger zone -->
-		<div style="max-width:600px;margin-top:8px;border-top:1px solid var(--error);padding-top:16px;">
-			<h3 class="text-sm font-medium" style="color:var(--error);margin-bottom:8px;">Danger Zone</h3>
-			<div style="padding:12px 16px;border:1px solid var(--error);border-radius:6px;background:color-mix(in srgb, var(--error) 5%, transparent);">
-				<strong class="text-sm" style="color:var(--text-strong);">Remove all authentication</strong>
-				<p class="text-xs text-[var(--muted)]" style="margin:6px 0 0;">
-					If you know what you're doing, you can fully disable authentication.
-					Anyone with network access will be able to access moltis and your computer.
-					This removes your password, all passkeys, all API keys, and all sessions.
-				</p>
-				${
-					resetConfirm
-						? html`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
-						<span class="text-xs" style="color:var(--error);">Are you sure? This cannot be undone.</span>
-						<button type="button" class="provider-btn provider-btn-danger" disabled=${resetBusy}
-							onClick=${onResetAuth}>${resetBusy ? "Removing\u2026" : "Yes, remove all auth"}</button>
-						<button type="button" class="provider-btn" onClick=${() => {
-							setResetConfirm(false);
-							rerender();
-						}}>Cancel</button>
-					</div>`
-						: html`<button type="button" class="provider-btn provider-btn-danger" style="margin-top:10px;"
-						onClick=${onResetAuth}>Remove all authentication</button>`
-				}
-			</div>
-		</div>
+		<${DangerZoneSection} resetConfirm=${resetConfirm} setResetConfirm=${setResetConfirm}
+			resetBusy=${resetBusy} onResetAuth=${onResetAuth} />
 	</div>`;
 }
 
@@ -1207,29 +1268,27 @@ function TailscaleSection() {
 				setAuthReady(ready);
 				rerender();
 			})
-			.catch(() => {});
+			.catch(() => {
+				/* ignore auth status fetch error */
+			});
 	}, []);
+
+	function setWrapData(bar, wrapSelector, dataSelector, value) {
+		var wrap = bar.querySelector(wrapSelector);
+		if (wrap && value) {
+			wrap.style.display = "";
+			wrap.querySelector(dataSelector).textContent = value;
+		}
+	}
 
 	function renderInstalledBar(container, status) {
 		var bar = cloneHidden("ts-installed-bar");
 		if (!bar) return;
 		var verEl = bar.querySelector("[data-ts-version]");
 		if (verEl) verEl.textContent = status.version ? `v${status.version.split("-")[0]}` : "";
-		var tailnetWrap = bar.querySelector("[data-ts-tailnet-wrap]");
-		if (tailnetWrap && status.tailnet) {
-			tailnetWrap.style.display = "";
-			tailnetWrap.querySelector("[data-ts-tailnet]").textContent = status.tailnet;
-		}
-		var accountWrap = bar.querySelector("[data-ts-account-wrap]");
-		if (accountWrap && status.login_name) {
-			accountWrap.style.display = "";
-			accountWrap.querySelector("[data-ts-account]").textContent = status.login_name;
-		}
-		var ipWrap = bar.querySelector("[data-ts-ip-wrap]");
-		if (ipWrap && status.tailscale_ip) {
-			ipWrap.style.display = "";
-			ipWrap.querySelector("[data-ts-ip]").textContent = status.tailscale_ip;
-		}
+		setWrapData(bar, "[data-ts-tailnet-wrap]", "[data-ts-tailnet]", status.tailnet);
+		setWrapData(bar, "[data-ts-account-wrap]", "[data-ts-account]", status.login_name);
+		setWrapData(bar, "[data-ts-ip-wrap]", "[data-ts-ip]", status.tailscale_ip);
 		container.appendChild(bar);
 	}
 
@@ -1282,29 +1341,34 @@ function TailscaleSection() {
 		return currentMode;
 	}
 
+	function renderHostname(container, currentMode) {
+		if (!tsStatus?.hostname) return;
+		var hn = cloneHidden("ts-hostname");
+		if (!hn) return;
+		hn.querySelector("[data-ts-hostname-value]").textContent = tsStatus.hostname;
+		var hnLink = hn.querySelector("[data-ts-hostname-link]");
+		var isActive = tsStatus.url && currentMode !== "off";
+		if (hnLink && isActive) {
+			hnLink.href = tsStatus.url;
+			hnLink.classList.remove("pointer-events-none", "text-[var(--text)]");
+			hnLink.classList.add("text-[var(--accent)]");
+		}
+		container.appendChild(hn);
+	}
+
+	function renderUrl(container, currentMode) {
+		if (!tsStatus?.url || currentMode === "off") return;
+		var urlEl = cloneHidden("ts-url");
+		if (!urlEl) return;
+		var link = urlEl.querySelector("[data-ts-url-link]");
+		link.href = tsStatus.url;
+		link.textContent = tsStatus.url;
+		container.appendChild(urlEl);
+	}
+
 	function renderHostnameAndUrl(container, currentMode) {
-		if (tsStatus?.hostname) {
-			var hn = cloneHidden("ts-hostname");
-			if (hn) {
-				hn.querySelector("[data-ts-hostname-value]").textContent = tsStatus.hostname;
-				var hnLink = hn.querySelector("[data-ts-hostname-link]");
-				if (hnLink && tsStatus.url && currentMode !== "off") {
-					hnLink.href = tsStatus.url;
-					hnLink.classList.remove("pointer-events-none", "text-[var(--text)]");
-					hnLink.classList.add("text-[var(--accent)]");
-				}
-				container.appendChild(hn);
-			}
-		}
-		if (tsStatus?.url && currentMode !== "off") {
-			var urlEl = cloneHidden("ts-url");
-			if (urlEl) {
-				var link = urlEl.querySelector("[data-ts-url-link]");
-				link.href = tsStatus.url;
-				link.textContent = tsStatus.url;
-				container.appendChild(urlEl);
-			}
-		}
+		renderHostname(container, currentMode);
+		renderUrl(container, currentMode);
 	}
 
 	function renderInstalledState(container) {
