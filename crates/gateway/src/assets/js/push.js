@@ -216,3 +216,40 @@ export async function getPushStatus() {
 		return null;
 	}
 }
+
+/**
+ * Remove a subscription from the server by its endpoint.
+ * This can be called from any device to remove any subscription.
+ * @param {string} endpoint - The subscription endpoint to remove
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+export async function removeSubscription(endpoint) {
+	try {
+		var response = await fetch("/api/push/unsubscribe", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ endpoint }),
+		});
+
+		if (!response.ok) {
+			return { success: false, error: "Failed to remove subscription" };
+		}
+
+		// If this was our own subscription, clear local state
+		if (currentSubscription?.endpoint === endpoint) {
+			try {
+				await currentSubscription.unsubscribe();
+			} catch (_e) {
+				// Ignore errors - subscription may already be gone
+			}
+			currentSubscription = null;
+		}
+
+		return { success: true };
+	} catch (e) {
+		console.error("Failed to remove subscription:", e);
+		return { success: false, error: e.message };
+	}
+}

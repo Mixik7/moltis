@@ -1776,6 +1776,12 @@ async fn run_with_tools(
                 BroadcastOpts::default(),
             )
             .await;
+            // Send push notification when chat response completes
+            #[cfg(feature = "push-notifications")]
+            {
+                tracing::info!("push: checking push notification (agent mode)");
+                send_chat_push_notification(state, session_key, &result.text).await;
+            }
             deliver_channel_replies(state, session_key, &result.text).await;
             Some((
                 result.text,
@@ -1961,6 +1967,7 @@ async fn run_streaming(
                 // Send push notification when chat response completes
                 #[cfg(feature = "push-notifications")]
                 {
+                    tracing::info!("push: checking push notification");
                     send_chat_push_notification(state, session_key, &accumulated).await;
                 }
                 deliver_channel_replies(state, session_key, &accumulated).await;
@@ -2003,13 +2010,19 @@ async fn send_chat_push_notification(
 ) {
     let push_service = match state.get_push_service().await {
         Some(svc) => svc,
-        None => return,
+        None => {
+            tracing::info!("push notification skipped: service not configured");
+            return;
+        }
     };
 
-    // Don't send if there are no subscribers
-    if push_service.subscription_count().await == 0 {
+    let sub_count = push_service.subscription_count().await;
+    if sub_count == 0 {
+        tracing::info!("push notification skipped: no subscribers");
         return;
     }
+
+    tracing::info!(subscribers = sub_count, session = session_key, "sending push notification");
 
     // Create a short summary of the response (first 100 chars)
     let summary = if text.len() > 100 {
@@ -2022,7 +2035,7 @@ async fn send_chat_push_notification(
     let title = "Message received";
     let url = format!("/chat/{session_key}");
 
-    if let Err(e) = crate::push_routes::send_push_notification(
+    match crate::push_routes::send_push_notification(
         &push_service,
         title,
         &summary,
@@ -2031,7 +2044,12 @@ async fn send_chat_push_notification(
     )
     .await
     {
-        tracing::warn!("Failed to send push notification: {e}");
+        Ok(sent) => {
+            tracing::info!(sent, "push notification sent");
+        }
+        Err(e) => {
+            tracing::warn!("failed to send push notification: {e}");
+        }
     }
 }
 

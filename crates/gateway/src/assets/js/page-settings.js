@@ -4,6 +4,7 @@ import { signal } from "@preact/signals";
 import { html } from "htm/preact";
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { onEvent } from "./events.js";
 import { refresh as refreshGon } from "./gon.js";
 import { sendRpc } from "./helpers.js";
 import * as push from "./push.js";
@@ -1407,8 +1408,28 @@ function NotificationsSection() {
 		rerender();
 	}
 
+	async function refreshStatus() {
+		var status = await push.getPushStatus();
+		setServerStatus(status);
+		rerender();
+	}
+
+	async function onRemoveSubscription(endpoint) {
+		var result = await push.removeSubscription(endpoint);
+		if (!result.success) {
+			setError(result.error || "Failed to remove subscription");
+			rerender();
+		}
+		// The WebSocket event will trigger refreshStatus automatically
+	}
+
 	useEffect(() => {
 		checkStatus();
+		// Listen for subscription changes via WebSocket
+		var off = onEvent("push.subscriptions", () => {
+			refreshStatus();
+		});
+		return off;
 	}, []);
 
 	async function onToggle() {
@@ -1534,12 +1555,34 @@ function NotificationsSection() {
 				: null
 		}
 
-		<!-- Server info -->
+		<!-- Subscribed devices -->
 		<div style="max-width:600px;border-top:1px solid var(--border);padding-top:16px;margin-top:8px;">
-			<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">Status</h3>
-			<div class="text-xs text-[var(--muted)]">
-				<p style="margin:0;">Subscriptions on this server: ${serverStatus?.subscription_count || 0}</p>
-			</div>
+			<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">
+				Subscribed Devices (${serverStatus?.subscription_count || 0})
+			</h3>
+			${
+				serverStatus?.subscriptions?.length > 0
+					? html`<div style="display:flex;flex-direction:column;gap:6px;">
+					${serverStatus.subscriptions.map(
+						(sub) => html`<div class="provider-item" style="margin-bottom:0;" key=${sub.endpoint}>
+						<div style="flex:1;min-width:0;">
+							<div class="provider-item-name" style="font-size:.85rem;">${sub.device}</div>
+							<div style="font-size:.7rem;color:var(--muted);margin-top:2px;display:flex;gap:12px;flex-wrap:wrap;">
+								${sub.ip ? html`<span style="font-family:var(--font-mono);">${sub.ip}</span>` : null}
+								<time datetime=${sub.created_at}>${new Date(sub.created_at).toLocaleDateString()}</time>
+							</div>
+						</div>
+						<button
+							class="provider-btn provider-btn-danger"
+							onClick=${() => onRemoveSubscription(sub.endpoint)}
+						>
+							Remove
+						</button>
+					</div>`,
+					)}
+				</div>`
+					: html`<div class="text-xs text-[var(--muted)]" style="padding:4px 0;">No devices subscribed yet.</div>`
+			}
 		</div>
 	</div>`;
 }

@@ -42,6 +42,9 @@ pub struct PushSubscription {
     /// User agent string (for debugging).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
+    /// Client IP address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip_address: Option<String>,
     /// When the subscription was created.
     pub created_at: DateTime<Utc>,
 }
@@ -180,6 +183,11 @@ impl PushService {
     /// Get the number of active subscriptions.
     pub async fn subscription_count(&self) -> usize {
         self.store.read().await.subscriptions.len()
+    }
+
+    /// Get all subscriptions (for admin display).
+    pub async fn list_subscriptions(&self) -> Vec<PushSubscription> {
+        self.store.read().await.subscriptions.clone()
     }
 
     /// Send a push notification to all subscriptions.
