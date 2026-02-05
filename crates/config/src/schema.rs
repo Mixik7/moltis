@@ -69,6 +69,7 @@ impl Default for ResolvedIdentity {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MoltisConfig {
+    pub server: ServerConfig,
     pub providers: ProvidersConfig,
     pub chat: ChatConfig,
     pub tools: ToolsConfig,
@@ -77,6 +78,7 @@ pub struct MoltisConfig {
     pub channels: ChannelsConfig,
     pub tls: TlsConfig,
     pub auth: AuthConfig,
+    pub metrics: MetricsConfig,
     pub identity: AgentIdentity,
     pub user: UserProfile,
     pub hooks: Option<HooksConfig>,
@@ -84,6 +86,26 @@ pub struct MoltisConfig {
     pub tailscale: TailscaleConfig,
     pub failover: FailoverConfig,
     pub heartbeat: HeartbeatConfig,
+}
+
+/// Gateway server configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServerConfig {
+    /// Address to bind to. Defaults to "127.0.0.1".
+    pub bind: String,
+    /// Port to listen on. When a new config is created, a random available port
+    /// is generated so each installation gets a unique port.
+    pub port: u16,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            bind: "127.0.0.1".into(),
+            port: 0, // Will be replaced with a random port when config is created
+        }
+    }
 }
 
 /// Failover configuration for automatic model/provider failover.
@@ -237,6 +259,31 @@ fn default_hook_timeout() -> u64 {
 pub struct AuthConfig {
     /// When true, authentication is explicitly disabled (no login required).
     pub disabled: bool,
+}
+
+/// Metrics and observability configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetricsConfig {
+    /// Whether metrics collection is enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Whether to expose the `/metrics` Prometheus endpoint.
+    #[serde(default = "default_true")]
+    pub prometheus_endpoint: bool,
+    /// Additional labels to add to all metrics.
+    #[serde(default)]
+    pub labels: HashMap<String, String>,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            prometheus_endpoint: true,
+            labels: HashMap::new(),
+        }
+    }
 }
 
 impl MoltisConfig {
@@ -752,6 +799,14 @@ pub struct ProviderEntry {
 
     /// Default model ID for this provider.
     pub model: Option<String>,
+
+    /// Optional alias for this provider instance.
+    ///
+    /// When set, this alias is used in metrics labels instead of the provider name.
+    /// Useful when configuring multiple instances of the same provider type
+    /// (e.g., "anthropic-work", "anthropic-personal").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
 }
 
 impl std::fmt::Debug for ProviderEntry {
@@ -761,6 +816,7 @@ impl std::fmt::Debug for ProviderEntry {
             .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
             .field("base_url", &self.base_url)
             .field("model", &self.model)
+            .field("alias", &self.alias)
             .finish()
     }
 }
@@ -772,6 +828,7 @@ impl Default for ProviderEntry {
             api_key: None,
             base_url: None,
             model: None,
+            alias: None,
         }
     }
 }
