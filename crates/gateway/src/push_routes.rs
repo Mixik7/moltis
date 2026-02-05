@@ -82,12 +82,12 @@ async fn vapid_key_handler(
 /// Extract the client IP from headers (for proxies) or connection info.
 fn extract_client_ip(headers: &HeaderMap, conn_addr: SocketAddr) -> String {
     // Check X-Forwarded-For first (may contain multiple IPs, take the first/leftmost)
-    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        if let Some(first_ip) = xff.split(',').next() {
-            let ip = first_ip.trim();
-            if !ip.is_empty() {
-                return ip.to_string();
-            }
+    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok())
+        && let Some(first_ip) = xff.split(',').next()
+    {
+        let ip = first_ip.trim();
+        if !ip.is_empty() {
+            return ip.to_string();
         }
     }
 
@@ -100,7 +100,10 @@ fn extract_client_ip(headers: &HeaderMap, conn_addr: SocketAddr) -> String {
     }
 
     // Check CF-Connecting-IP (Cloudflare)
-    if let Some(cf_ip) = headers.get("cf-connecting-ip").and_then(|v| v.to_str().ok()) {
+    if let Some(cf_ip) = headers
+        .get("cf-connecting-ip")
+        .and_then(|v| v.to_str().ok())
+    {
         let ip = cf_ip.trim();
         if !ip.is_empty() {
             return ip.to_string();

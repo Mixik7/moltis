@@ -2003,17 +2003,13 @@ async fn run_streaming(
 /// Send a push notification when a chat response completes.
 /// Only sends if push notifications are configured and there are subscribers.
 #[cfg(feature = "push-notifications")]
-async fn send_chat_push_notification(
-    state: &Arc<GatewayState>,
-    session_key: &str,
-    text: &str,
-) {
+async fn send_chat_push_notification(state: &Arc<GatewayState>, session_key: &str, text: &str) {
     let push_service = match state.get_push_service().await {
         Some(svc) => svc,
         None => {
             tracing::info!("push notification skipped: service not configured");
             return;
-        }
+        },
     };
 
     let sub_count = push_service.subscription_count().await;
@@ -2022,7 +2018,11 @@ async fn send_chat_push_notification(
         return;
     }
 
-    tracing::info!(subscribers = sub_count, session = session_key, "sending push notification");
+    tracing::info!(
+        subscribers = sub_count,
+        session = session_key,
+        "sending push notification"
+    );
 
     // Create a short summary of the response (first 100 chars)
     let summary = if text.len() > 100 {
@@ -2046,10 +2046,10 @@ async fn send_chat_push_notification(
     {
         Ok(sent) => {
             tracing::info!(sent, "push notification sent");
-        }
+        },
         Err(e) => {
             tracing::warn!("failed to send push notification: {e}");
-        }
+        },
     }
 }
 
