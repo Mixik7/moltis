@@ -9,6 +9,7 @@ import { sendRpc } from "./helpers.js";
 import { updateNavCount } from "./nav-counts.js";
 import { registerPage } from "./router.js";
 import * as S from "./state.js";
+import { ConfirmDialog, requestConfirm } from "./ui.js";
 
 // ── Signals (reactive state) ─────────────────────────────────
 var repos = signal([]); // lightweight summaries: { source, skill_count, enabled_count }
@@ -284,11 +285,7 @@ function SkillDetail(props) {
 
 	var isDisc = d.source === "personal" || d.source === "project";
 
-	function onToggle() {
-		if (!S.connected) return;
-		if (isDisc && d.enabled && !confirm(`Delete skill "${d.name}"? This removes the SKILL.md file.`)) {
-			return;
-		}
+	function doToggle() {
 		var method = d.enabled ? "skills.skill.disable" : "skills.skill.enable";
 		sendRpc(method, { source: props.repoSource, skill: d.name }).then((r) => {
 			if (r?.ok) {
@@ -296,6 +293,17 @@ function SkillDetail(props) {
 				fetchAll();
 			}
 		});
+	}
+
+	function onToggle() {
+		if (!S.connected) return;
+		if (isDisc && d.enabled) {
+			requestConfirm(`Delete skill "${d.name}"? This removes the SKILL.md file.`).then((yes) => {
+				if (yes) doToggle();
+			});
+			return;
+		}
+		doToggle();
 	}
 
 	return html`<div ref=${panelRef} class="skills-detail-panel" style="display:block">
@@ -502,15 +510,8 @@ function EnabledSkillsTable() {
 		return src === "personal" || src === "project";
 	}
 
-	function onDisable(skill) {
+	function doDisable(skill) {
 		var source = map[skill.name] || skill.source;
-		if (!source) {
-			showToast("Cannot disable: unknown source for skill.", "error");
-			return;
-		}
-		if (isDiscovered(skill) && !confirm(`Delete skill "${skill.name}"? This removes the SKILL.md file.`)) {
-			return;
-		}
 		sendRpc("skills.skill.disable", { source: source, skill: skill.name }).then((res) => {
 			if (res?.ok) {
 				activeDetail.value = null;
@@ -520,6 +521,21 @@ function EnabledSkillsTable() {
 				showToast(`Failed: ${res?.error?.message || res?.error || "unknown error"}`, "error");
 			}
 		});
+	}
+
+	function onDisable(skill) {
+		var source = map[skill.name] || skill.source;
+		if (!source) {
+			showToast("Cannot disable: unknown source for skill.", "error");
+			return;
+		}
+		if (isDiscovered(skill)) {
+			requestConfirm(`Delete skill "${skill.name}"? This removes the SKILL.md file.`).then((yes) => {
+				if (yes) doDisable(skill);
+			});
+			return;
+		}
+		doDisable(skill);
 	}
 
 	function loadDetail(skill) {
@@ -620,6 +636,7 @@ function SkillsPage() {
       <${EnabledSkillsTable} />
     </div>
     <${Toasts} />
+    <${ConfirmDialog} />
   `;
 }
 
