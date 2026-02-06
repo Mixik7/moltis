@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **XMPP Channel Support**: Full XMPP (Jabber) messaging integration using `tokio-xmpp` v5
+  - 1:1 direct messages and Multi-User Chat (MUC) group conversations
+  - Auto-reconnect with MUC room re-join on connection loss
+  - Per-room configuration overrides (system prompt, skills, user allowlist, mention mode)
+  - Access control with DM/group policies, JID allowlists, and domain wildcards
+  - XEP-0045 (MUC), XEP-0066 (OOB media), XEP-0085 (typing indicators),
+    XEP-0363 (HTTP file upload), XEP-0444 (reactions)
+  - Multi-channel gateway architecture: `ChannelRegistry` replaces hardcoded Telegram,
+    enabling any number of channel types
+
 - **QMD Backend Support**: Optional QMD (Query Memory Daemon) backend for hybrid search with BM25 + vector + LLM reranking
   - Gated behind `qmd` feature flag (enabled by default)
   - Web UI shows installation instructions and QMD status
@@ -71,5 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- Added `docs/src/xmpp.md` with XMPP integration setup, configuration, and troubleshooting guide
 - Added mobile-pwa.md with PWA installation and push notification documentation
 - Updated CLAUDE.md with cargo feature policy (features enabled by default)

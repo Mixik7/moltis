@@ -156,6 +156,20 @@ enabled = true
 allowed_users = [123456789]     # Telegram user IDs allowed to chat
 ```
 
+## XMPP Integration
+
+```toml
+[channels.xmpp.my-bot]
+jid = "bot@example.com"
+password = "your-password"
+resource = "moltis"
+rooms = ["team@conference.example.com"]
+dm_policy = "open"
+mention_mode = "mention"
+```
+
+See [XMPP Integration](xmpp.md) for the full configuration reference including per-room overrides, access control, and supported XEPs.
+
 ## TLS / HTTPS
 
 ```toml

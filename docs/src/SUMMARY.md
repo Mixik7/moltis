@@ -21,6 +21,7 @@
 - [Local LLMs](local-llm.md)
 - [Sandbox](sandbox.md)
 - [Mobile PWA](mobile-pwa.md)
+- [XMPP Integration](xmpp.md)
 
 ---
 
