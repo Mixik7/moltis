@@ -37,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Safari/iOS PWA Detection**: Show "Add to Dock" instructions when push notifications
   require PWA installation (Safari doesn't support push in browser mode)
 
+- **xAI Grok Provider**: Full support for xAI's Grok models via OpenAI-compatible API
+  - Models: grok-3, grok-3-fast, grok-3-mini, grok-3-mini-fast, grok-2, grok-2-mini
+  - 131k context window
+  - Full tool calling support
+
+- **Generic OpenAI-Compatible Provider**: Bring-your-own-endpoint support for any
+  OpenAI-compatible API (vLLM, text-generation-inference, enterprise proxies, etc.)
+  - Configure via `[providers.openai-compatible]` with `base_url` and `model`
+  - Requires explicit configuration (no defaults)
+
 ### Changed
 
 - Memory settings UI enhanced with backend comparison and feature explanations
