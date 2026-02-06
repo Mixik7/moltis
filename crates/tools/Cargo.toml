@@ -18,10 +18,12 @@ moltis-config     = { workspace = true }
 moltis-cron       = { workspace = true }
 moltis-metrics    = { optional = true, workspace = true }
 moltis-sessions   = { workspace = true }
+moltis-skills     = { workspace = true }
 reqwest           = { workspace = true }
 secrecy.workspace = true
 serde             = { workspace = true }
 serde_json        = { workspace = true }
+sqlx              = { workspace = true }
 tokio             = { workspace = true }
 tracing           = { workspace = true }
 url               = "2"
