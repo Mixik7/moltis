@@ -14,5 +14,6 @@ pub mod policy;
 pub mod sandbox;
 pub mod sessions;
 pub mod spawn_agent;
+pub mod task_list;
 pub mod web_fetch;
 pub mod web_search;

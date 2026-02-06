@@ -856,6 +856,55 @@ impl AgentsConfig {
     }
 }
 
+/// Memory scope for persistent agent memory.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryScope {
+    /// User-global: `~/.moltis/agent-memory/<preset>/`
+    #[default]
+    User,
+    /// Project-local: `.moltis/agent-memory/<preset>/`
+    Project,
+    /// Untracked local: `.moltis/agent-memory-local/<preset>/`
+    Local,
+}
+
+/// Persistent memory configuration for a preset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PresetMemoryConfig {
+    /// Memory scope: where the MEMORY.md is stored.
+    pub scope: MemoryScope,
+    /// Maximum lines to load from MEMORY.md (default: 200).
+    pub max_lines: usize,
+}
+
+impl Default for PresetMemoryConfig {
+    fn default() -> Self {
+        Self {
+            scope: MemoryScope::default(),
+            max_lines: 200,
+        }
+    }
+}
+
+/// Hook configuration for a preset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PresetHookConfig {
+    /// Name of the hook.
+    pub name: String,
+    /// Shell command to execute.
+    pub command: String,
+    /// Events this hook subscribes to.
+    pub events: Vec<moltis_common::hooks::HookEvent>,
+    /// Timeout in seconds (default: 10).
+    #[serde(default = "default_hook_timeout")]
+    pub timeout: u64,
+    /// Extra environment variables passed to the command.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+}
+
 /// A named agent preset definition.
 ///
 /// Presets allow defining specialized agent configurations that can be
@@ -880,6 +929,13 @@ pub struct AgentPreset {
     pub sandbox: Option<PresetSandboxConfig>,
     /// Session access policy for inter-agent communication.
     pub sessions: Option<SessionAccessPolicyConfig>,
+    /// Persistent memory for the agent.
+    pub memory: Option<PresetMemoryConfig>,
+    /// Hooks for dynamic tool control.
+    pub hooks: Option<Vec<PresetHookConfig>>,
+    /// When true, agent only has delegation tools (coordinator mode).
+    #[serde(default)]
+    pub delegate_only: bool,
 }
 
 /// Tool policy within a preset.

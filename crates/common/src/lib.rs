@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod hooks;
+pub mod shell_hook;
 pub mod types;
 
 pub use error::MoltisError;

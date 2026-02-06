@@ -87,8 +87,12 @@ pub fn load_config_value(path: &Path) -> anyhow::Result<serde_json::Value> {
 ///
 /// If the config has port 0 (either from defaults or missing `[server]` section),
 /// a random available port is generated and saved to the config file.
+///
+/// After loading the config file, also discovers markdown agent definitions
+/// from `~/.moltis/agents/` and `.moltis/agents/`. TOML-defined presets
+/// take precedence over markdown definitions.
 pub fn discover_and_load() -> MoltisConfig {
-    if let Some(path) = find_config_file() {
+    let mut config = if let Some(path) = find_config_file() {
         debug!(path = %path.display(), "loading config");
         match load_config(&path) {
             Ok(mut cfg) => {
@@ -103,23 +107,31 @@ pub fn discover_and_load() -> MoltisConfig {
                         warn!(error = %e, "failed to save config with generated port");
                     }
                 }
-                return cfg; // env overrides already applied by load_config
+                cfg // env overrides already applied by load_config
             },
             Err(e) => {
                 warn!(path = %path.display(), error = %e, "failed to load config, using defaults");
+                apply_env_overrides(MoltisConfig::default())
             },
         }
     } else {
         debug!("no config file found, writing default config with random port");
-        let mut config = MoltisConfig::default();
+        let mut cfg = MoltisConfig::default();
         // Generate a unique port for this installation
-        config.server.port = generate_random_port();
-        if let Err(e) = write_default_config(&config) {
+        cfg.server.port = generate_random_port();
+        if let Err(e) = write_default_config(&cfg) {
             warn!(error = %e, "failed to write default config file");
         }
-        return apply_env_overrides(config);
+        apply_env_overrides(cfg)
+    };
+
+    // Merge markdown agent definitions. TOML presets take precedence.
+    let md_defs = crate::agent_defs::discover_agent_defs();
+    for (name, preset) in md_defs {
+        config.agents.presets.entry(name).or_insert(preset);
     }
-    apply_env_overrides(MoltisConfig::default())
+
+    config
 }
 
 /// Find the first config file in standard locations.

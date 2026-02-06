@@ -1278,6 +1278,11 @@ pub async fn start_gateway(
             )));
         }
 
+        // Register shared task list tool for inter-agent coordination.
+        tool_registry.register(Box::new(moltis_tools::task_list::TaskListTool::new(
+            &data_dir,
+        )));
+
         // Register session tools for inter-agent communication.
         // sessions_list and sessions_history are always available.
         tool_registry.register(Box::new(SessionsListTool::new(Arc::clone(
@@ -1337,6 +1342,7 @@ pub async fn start_gateway(
                     }
                 })
             });
+        let send_to_session_for_spawn = Arc::clone(&send_to_session);
         tool_registry.register(Box::new(SessionsSendTool::new(
             Arc::clone(&session_metadata),
             send_to_session,
@@ -1381,13 +1387,19 @@ pub async fn start_gateway(
                 });
             });
             let agents_config = Arc::new(tokio::sync::RwLock::new(config.agents.clone()));
+            let session_deps = moltis_tools::spawn_agent::SessionDeps {
+                session_metadata: Arc::clone(&session_metadata),
+                session_store: Arc::clone(&session_store),
+                send_to_session: send_to_session_for_spawn,
+            };
             let spawn_tool = moltis_tools::spawn_agent::SpawnAgentTool::new(
                 Arc::clone(&registry),
                 default_provider,
                 base_tools,
                 agents_config,
             )
-            .with_on_event(on_spawn_event);
+            .with_on_event(on_spawn_event)
+            .with_session_deps(session_deps);
             tool_registry.register(Box::new(spawn_tool));
         }
 

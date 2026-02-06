@@ -5,6 +5,7 @@
 //!
 //! Supports `${ENV_VAR}` substitution in all string values.
 
+pub mod agent_defs;
 pub mod env_subst;
 pub mod loader;
 pub mod migrate;
@@ -17,7 +18,8 @@ pub use {
         update_config,
     },
     schema::{
-        AgentIdentity, AgentPreset, AgentsConfig, AuthConfig, ChatConfig, MessageQueueMode,
-        MoltisConfig, ResolvedIdentity, SessionAccessPolicyConfig, UserProfile,
+        AgentIdentity, AgentPreset, AgentsConfig, AuthConfig, ChatConfig, MemoryScope,
+        MessageQueueMode, MoltisConfig, PresetHookConfig, PresetMemoryConfig, ResolvedIdentity,
+        SessionAccessPolicyConfig, UserProfile,
     },
 };

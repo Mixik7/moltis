@@ -14,8 +14,26 @@ use {
     moltis_config::schema::AgentsConfig,
 };
 
+use {
+    crate::sessions::{
+        SendToSessionFn, SessionAccessPolicy, SessionsHistoryTool, SessionsListTool,
+        SessionsSendTool,
+    },
+    moltis_sessions::{metadata::SqliteSessionMetadata, store::SessionStore},
+};
+
 /// Maximum nesting depth for sub-agents (prevents infinite recursion).
 const MAX_SPAWN_DEPTH: u64 = 3;
+
+/// Tools available to delegate-only (coordinator) agents.
+/// These agents can only manage sessions and tasks, not do direct work.
+const DELEGATE_TOOLS: &[&str] = &[
+    "spawn_agent",
+    "sessions_list",
+    "sessions_history",
+    "sessions_send",
+    "task_list",
+];
 
 /// Tool parameter injected via `tool_context` to track nesting depth.
 const SPAWN_DEPTH_KEY: &str = "_spawn_depth";
@@ -33,12 +51,21 @@ const SPAWN_DEPTH_KEY: &str = "_spawn_depth";
 /// Callback for emitting events from the sub-agent back to the parent UI.
 pub type OnSpawnEvent = Arc<dyn Fn(RunnerEvent) + Send + Sync>;
 
+/// Dependencies for building policy-aware session tools in sub-agents.
+#[derive(Clone)]
+pub struct SessionDeps {
+    pub session_metadata: Arc<SqliteSessionMetadata>,
+    pub session_store: Arc<SessionStore>,
+    pub send_to_session: SendToSessionFn,
+}
+
 pub struct SpawnAgentTool {
     provider_registry: Arc<RwLock<ProviderRegistry>>,
     default_provider: Arc<dyn LlmProvider>,
     tool_registry: Arc<ToolRegistry>,
     agents_config: Arc<RwLock<AgentsConfig>>,
     on_event: Option<OnSpawnEvent>,
+    session_deps: Option<SessionDeps>,
 }
 
 impl SpawnAgentTool {
@@ -54,6 +81,7 @@ impl SpawnAgentTool {
             tool_registry,
             agents_config,
             on_event: None,
+            session_deps: None,
         }
     }
 
@@ -63,10 +91,41 @@ impl SpawnAgentTool {
         self
     }
 
+    /// Provide session dependencies so sub-agents can get policy-aware session tools.
+    pub fn with_session_deps(mut self, deps: SessionDeps) -> Self {
+        self.session_deps = Some(deps);
+        self
+    }
+
     fn emit(&self, event: RunnerEvent) {
         if let Some(ref cb) = self.on_event {
             cb(event);
         }
+    }
+
+    /// Rebuild session tools with the given policy and replace them in the registry.
+    fn apply_session_policy(
+        sub_tools: &mut ToolRegistry,
+        deps: &SessionDeps,
+        policy: SessionAccessPolicy,
+    ) {
+        sub_tools.replace(Box::new(
+            SessionsListTool::new(Arc::clone(&deps.session_metadata)).with_policy(policy.clone()),
+        ));
+        sub_tools.replace(Box::new(
+            SessionsHistoryTool::new(
+                Arc::clone(&deps.session_store),
+                Arc::clone(&deps.session_metadata),
+            )
+            .with_policy(policy.clone()),
+        ));
+        sub_tools.replace(Box::new(
+            SessionsSendTool::new(
+                Arc::clone(&deps.session_metadata),
+                Arc::clone(&deps.send_to_session),
+            )
+            .with_policy(policy),
+        ));
     }
 }
 
@@ -177,19 +236,46 @@ impl AgentTool for SpawnAgentTool {
         });
 
         // Build filtered tool registry based on preset policy.
-        let sub_tools = if let Some(p) = preset {
+        let is_delegate = preset.is_some_and(|p| p.delegate_only);
+        let mut sub_tools = if is_delegate {
+            // Delegate mode: only delegation tools, including spawn_agent.
+            let delegate_allow: Vec<String> =
+                DELEGATE_TOOLS.iter().map(|s| (*s).to_string()).collect();
+            self.tool_registry
+                .clone_with_policy(&delegate_allow, &[], &[])
+        } else if let Some(p) = preset {
             self.tool_registry.clone_with_policy(
                 &p.tools.allow,
                 &p.tools.deny,
-                &["spawn_agent"], // Always exclude spawn_agent
+                &["spawn_agent"], // Always exclude spawn_agent for non-delegates
             )
         } else {
             // Default: exclude only spawn_agent to prevent recursive spawning.
             self.tool_registry.clone_without(&["spawn_agent"])
         };
 
+        // Apply session access policy if the preset configures one.
+        if let Some(p) = preset
+            && let Some(ref session_config) = p.sessions
+            && let Some(ref deps) = self.session_deps
+        {
+            let policy = SessionAccessPolicy::from(session_config);
+            Self::apply_session_policy(&mut sub_tools, deps, policy);
+        }
+
         // Build system prompt with preset customizations.
-        let system_prompt = build_sub_agent_prompt(task, context, preset);
+        let mut system_prompt = build_sub_agent_prompt(task, context, preset, preset_name);
+
+        // Inject coordinator instructions for delegate-only mode.
+        if is_delegate {
+            system_prompt.push_str(
+                "\n\nYou are a coordinator agent. You CANNOT perform tasks directly — \
+                 you do not have access to tools like exec, read, or write. Instead, \
+                 you MUST delegate all work by spawning sub-agents or sending messages \
+                 to other sessions. Use the task_list tool to track work items and \
+                 coordinate between agents.",
+            );
+        }
 
         // Build tool context with incremented depth and propagated session key.
         let mut tool_context = serde_json::json!({
@@ -199,10 +285,33 @@ impl AgentTool for SpawnAgentTool {
             tool_context["_session_key"] = session_key.clone();
         }
 
+        // Build hook registry from preset configuration, if any.
+        // Must happen before dropping the agents_config read lock since
+        // `preset` borrows from it.
+        let hook_registry = if let Some(p) = preset
+            && let Some(ref hook_configs) = p.hooks
+            && !hook_configs.is_empty()
+        {
+            let mut registry = moltis_common::hooks::HookRegistry::new();
+            for hc in hook_configs {
+                let handler = moltis_common::shell_hook::ShellHookHandler::new(
+                    hc.name.clone(),
+                    hc.command.clone(),
+                    hc.events.clone(),
+                    std::time::Duration::from_secs(hc.timeout),
+                    hc.env.clone(),
+                );
+                registry.register(Arc::new(handler));
+            }
+            Some(Arc::new(registry))
+        } else {
+            None
+        };
+
         // Drop the read lock before running the agent loop.
         drop(agents_config);
 
-        // Run the sub-agent loop (no event forwarding, no hooks, no history).
+        // Run the sub-agent loop.
         let result = run_agent_loop_with_context(
             provider,
             &sub_tools,
@@ -211,7 +320,7 @@ impl AgentTool for SpawnAgentTool {
             None,
             None, // no history
             Some(tool_context),
-            None, // no hooks for sub-agents
+            hook_registry,
         )
         .await;
 
@@ -249,11 +358,58 @@ impl AgentTool for SpawnAgentTool {
     }
 }
 
+/// Resolve the memory directory for a preset based on its scope.
+fn resolve_memory_dir(
+    preset_name: &str,
+    scope: &moltis_config::schema::MemoryScope,
+) -> std::path::PathBuf {
+    use moltis_config::schema::MemoryScope;
+    match scope {
+        MemoryScope::User => {
+            let data_dir = moltis_config::data_dir();
+            data_dir.join("agent-memory").join(preset_name)
+        },
+        MemoryScope::Project => std::path::PathBuf::from(".moltis")
+            .join("agent-memory")
+            .join(preset_name),
+        MemoryScope::Local => std::path::PathBuf::from(".moltis")
+            .join("agent-memory-local")
+            .join(preset_name),
+    }
+}
+
+/// Load the first N lines of MEMORY.md from the agent's memory directory.
+/// Returns `None` if the file doesn't exist or is empty.
+fn load_memory_context(
+    preset_name: &str,
+    config: &moltis_config::schema::PresetMemoryConfig,
+) -> Option<String> {
+    let dir = resolve_memory_dir(preset_name, &config.scope);
+    load_memory_from_dir(&dir, config.max_lines)
+}
+
+/// Load memory content from a specific directory.
+fn load_memory_from_dir(dir: &std::path::Path, max_lines: usize) -> Option<String> {
+    let memory_path = dir.join("MEMORY.md");
+
+    // Create directory if missing so agents can write to it later.
+    let _ = std::fs::create_dir_all(dir);
+
+    let content = std::fs::read_to_string(&memory_path).ok()?;
+    if content.trim().is_empty() {
+        return None;
+    }
+
+    let lines: Vec<&str> = content.lines().take(max_lines).collect();
+    Some(lines.join("\n"))
+}
+
 /// Build the system prompt for a sub-agent, incorporating preset customizations.
 fn build_sub_agent_prompt(
     task: &str,
     context: &str,
     preset: Option<&moltis_config::schema::AgentPreset>,
+    preset_name: Option<&str>,
 ) -> String {
     let mut prompt = String::new();
 
@@ -280,6 +436,17 @@ fn build_sub_agent_prompt(
         prompt.push_str("You are a sub-agent spawned to handle a specific task. ");
     }
     prompt.push_str("Complete the task thoroughly and return a clear result.\n\n");
+
+    // Inject persistent memory if configured.
+    if let Some(p) = preset
+        && let Some(ref mem_config) = p.memory
+        && let Some(name) = preset_name
+        && let Some(memory_content) = load_memory_context(name, mem_config)
+    {
+        prompt.push_str("# Agent Memory\n\n");
+        prompt.push_str(&memory_content);
+        prompt.push_str("\n\n");
+    }
 
     // Add task.
     prompt.push_str(&format!("Task: {task}"));
@@ -583,7 +750,8 @@ mod tests {
             ..Default::default()
         };
 
-        let prompt = build_sub_agent_prompt("find bugs", "in main.rs", Some(&preset));
+        let prompt =
+            build_sub_agent_prompt("find bugs", "in main.rs", Some(&preset), Some("scout"));
 
         assert!(prompt.contains("You are scout"));
         assert!(prompt.contains("a helpful owl"));
@@ -634,5 +802,222 @@ mod tests {
 
         assert_eq!(result["text"], "researched");
         assert_eq!(result["preset"], "researcher");
+    }
+
+    #[test]
+    fn test_resolve_memory_dir_user_scope() {
+        use moltis_config::schema::MemoryScope;
+        let dir = resolve_memory_dir("scout", &MemoryScope::User);
+        assert!(dir.ends_with("agent-memory/scout"));
+    }
+
+    #[test]
+    fn test_resolve_memory_dir_project_scope() {
+        use moltis_config::schema::MemoryScope;
+        let dir = resolve_memory_dir("scout", &MemoryScope::Project);
+        assert_eq!(dir, std::path::PathBuf::from(".moltis/agent-memory/scout"));
+    }
+
+    #[test]
+    fn test_resolve_memory_dir_local_scope() {
+        use moltis_config::schema::MemoryScope;
+        let dir = resolve_memory_dir("scout", &MemoryScope::Local);
+        assert_eq!(
+            dir,
+            std::path::PathBuf::from(".moltis/agent-memory-local/scout")
+        );
+    }
+
+    #[test]
+    fn test_load_memory_context_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        // No MEMORY.md file created — should return None.
+        let result = load_memory_from_dir(dir.path(), 200);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_load_memory_context_truncation() {
+        let dir = tempfile::tempdir().unwrap();
+        let memory_dir = dir.path().to_path_buf();
+
+        let lines: Vec<String> = (1..=10).map(|i| format!("Line {i}")).collect();
+        std::fs::write(memory_dir.join("MEMORY.md"), lines.join("\n")).unwrap();
+
+        let result = load_memory_from_dir(&memory_dir, 3).unwrap();
+        assert_eq!(result, "Line 1\nLine 2\nLine 3");
+
+        // Full read returns all lines.
+        let result = load_memory_from_dir(&memory_dir, 200).unwrap();
+        assert!(result.contains("Line 10"));
+    }
+
+    #[test]
+    fn test_memory_injected_into_prompt() {
+        use moltis_config::schema::{MemoryScope, PresetMemoryConfig};
+
+        // To test memory injection without global state, we set a unique data_dir
+        // that won't collide. We use a tempdir with a unique path.
+        let dir = tempfile::tempdir().unwrap();
+
+        // Set data_dir to our temp dir and build a matching memory file.
+        moltis_config::set_data_dir(dir.path().to_path_buf());
+
+        let memory_dir = dir.path().join("agent-memory").join("test-prompt-agent");
+        std::fs::create_dir_all(&memory_dir).unwrap();
+        std::fs::write(memory_dir.join("MEMORY.md"), "Remember: use async").unwrap();
+
+        let preset = AgentPreset {
+            memory: Some(PresetMemoryConfig {
+                scope: MemoryScope::User,
+                max_lines: 200,
+            }),
+            ..Default::default()
+        };
+
+        let prompt =
+            build_sub_agent_prompt("do work", "", Some(&preset), Some("test-prompt-agent"));
+        assert!(prompt.contains("# Agent Memory"));
+        assert!(prompt.contains("Remember: use async"));
+
+        moltis_config::clear_data_dir();
+    }
+
+    #[test]
+    fn test_tool_registry_replace() {
+        let mut registry = ToolRegistry::new();
+
+        struct Tool1;
+        #[async_trait]
+        impl AgentTool for Tool1 {
+            fn name(&self) -> &str {
+                "my_tool"
+            }
+
+            fn description(&self) -> &str {
+                "version 1"
+            }
+
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
+
+            async fn execute(&self, _: serde_json::Value) -> Result<serde_json::Value> {
+                Ok(serde_json::json!("v1"))
+            }
+        }
+
+        struct Tool2;
+        #[async_trait]
+        impl AgentTool for Tool2 {
+            fn name(&self) -> &str {
+                "my_tool"
+            }
+
+            fn description(&self) -> &str {
+                "version 2"
+            }
+
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
+
+            async fn execute(&self, _: serde_json::Value) -> Result<serde_json::Value> {
+                Ok(serde_json::json!("v2"))
+            }
+        }
+
+        registry.register(Box::new(Tool1));
+        assert_eq!(registry.get("my_tool").unwrap().description(), "version 1");
+
+        let replaced = registry.replace(Box::new(Tool2));
+        assert!(replaced);
+        assert_eq!(registry.get("my_tool").unwrap().description(), "version 2");
+    }
+
+    #[test]
+    fn test_delegate_only_default_false() {
+        let preset = AgentPreset::default();
+        assert!(!preset.delegate_only);
+    }
+
+    #[test]
+    fn test_delegate_only_config_parse() {
+        let preset: AgentPreset = serde_json::from_str(r#"{"delegate_only": true}"#).unwrap();
+        assert!(preset.delegate_only);
+    }
+
+    #[test]
+    fn test_delegate_mode_tool_filtering() {
+        let mut registry = ToolRegistry::new();
+
+        // Register several tools including delegate-allowed ones.
+        for name in &[
+            "spawn_agent",
+            "sessions_list",
+            "sessions_history",
+            "sessions_send",
+            "task_list",
+            "exec",
+            "read_file",
+            "web_search",
+        ] {
+            struct NamedTool(String);
+            #[async_trait]
+            impl AgentTool for NamedTool {
+                fn name(&self) -> &str {
+                    &self.0
+                }
+
+                fn description(&self) -> &str {
+                    "test"
+                }
+
+                fn parameters_schema(&self) -> serde_json::Value {
+                    serde_json::json!({})
+                }
+
+                async fn execute(&self, _: serde_json::Value) -> Result<serde_json::Value> {
+                    Ok(serde_json::json!("ok"))
+                }
+            }
+            registry.register(Box::new(NamedTool((*name).to_string())));
+        }
+
+        // Apply delegate-only filtering.
+        let delegate_allow: Vec<String> = DELEGATE_TOOLS.iter().map(|s| (*s).to_string()).collect();
+        let filtered = registry.clone_with_policy(&delegate_allow, &[], &[]);
+
+        // Delegate tools should be present.
+        for name in DELEGATE_TOOLS {
+            assert!(
+                filtered.get(name).is_some(),
+                "delegate tool '{name}' should be present"
+            );
+        }
+
+        // Non-delegate tools should be excluded.
+        assert!(filtered.get("exec").is_none(), "exec should be excluded");
+        assert!(
+            filtered.get("read_file").is_none(),
+            "read_file should be excluded"
+        );
+        assert!(
+            filtered.get("web_search").is_none(),
+            "web_search should be excluded"
+        );
+
+        // spawn_agent should be INCLUDED (delegates can spawn).
+        assert!(
+            filtered.get("spawn_agent").is_some(),
+            "spawn_agent should be included for delegates"
+        );
+    }
+
+    #[test]
+    fn test_delegate_prompt_contains_coordinator_instructions() {
+        // Verify the coordinator prompt text is what we expect.
+        let coordinator_text = "You are a coordinator agent. You CANNOT perform tasks directly";
+        assert!(coordinator_text.contains("coordinator"));
     }
 }

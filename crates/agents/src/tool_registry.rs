@@ -106,6 +106,18 @@ impl ToolRegistry {
         ToolRegistry { tools }
     }
 
+    /// Replace an existing tool with a new one (same name).
+    ///
+    /// Returns `true` if a tool with that name existed and was replaced,
+    /// `false` if no tool with that name was registered (the new tool is
+    /// still inserted).
+    pub fn replace(&mut self, tool: Box<dyn AgentTool>) -> bool {
+        let name = tool.name().to_string();
+        let existed = self.tools.contains_key(&name);
+        self.tools.insert(name, Arc::from(tool));
+        existed
+    }
+
     /// Get the list of tool names.
     pub fn tool_names(&self) -> Vec<String> {
         self.tools.keys().cloned().collect()
