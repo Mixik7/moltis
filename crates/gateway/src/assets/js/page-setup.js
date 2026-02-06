@@ -37,6 +37,7 @@ function SetupPage() {
 		return null;
 	}
 
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Setup form handles auth, password, passkey flows
 	function onSubmit(e) {
 		e.preventDefault();
 		setError(null);
