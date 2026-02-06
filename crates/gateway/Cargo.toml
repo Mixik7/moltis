@@ -11,6 +11,7 @@ axum                     = { workspace = true }
 axum-extra               = { features = ["cookie"], version = "0.10" }
 axum-server              = { optional = true, workspace = true }
 base64                   = { workspace = true }
+chrono                   = { features = ["serde"], optional = true, version = "0.4" }
 dashmap                  = "6"
 directories.workspace    = true
 futures                  = { workspace = true }
@@ -38,6 +39,7 @@ moltis-telegram          = { workspace = true }
 moltis-tools             = { workspace = true }
 moltis-whatsapp          = { optional = true, workspace = true }
 moltis-whatsapp-business = { optional = true, workspace = true }
+p256                     = { features = ["ecdsa"], optional = true, version = "0.13" }
 password-hash            = "0.5"
 pulldown-cmark           = { default-features = false, features = ["html"], version = "0.12" }
 rand                     = { workspace = true }
@@ -59,6 +61,7 @@ tower-http               = { features = ["cors"], version = "0.6" }
 tracing                  = { workspace = true }
 tracing-subscriber       = { workspace = true }
 uuid                     = { workspace = true }
+web-push                 = { optional = true, version = "0.10" }
 webauthn-rs              = { features = ["danger-allow-state-serialisation"], version = "0.5" }
 webauthn-rs-proto        = "0.5"
 # OpenSSL vendored for cross-compilation (required by webauthn-rs)
@@ -71,6 +74,7 @@ default = [
   "local-llm",
   "metrics",
   "prometheus",
+  "push-notifications",
   "tailscale",
   "tls",
   "web-ui",
@@ -84,6 +88,7 @@ local-llm-cuda = ["moltis-agents/local-llm-cuda"]
 local-llm-metal = ["moltis-agents/local-llm-metal"]
 metrics = ["dep:moltis-metrics", "moltis-metrics/sqlite"]
 prometheus = ["metrics", "moltis-metrics/prometheus"]
+push-notifications = ["dep:chrono", "dep:p256", "dep:web-push"]
 tailscale = []
 tls = ["dep:axum-server", "dep:rcgen", "dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls"]
 web-ui = ["dep:include_dir"]
