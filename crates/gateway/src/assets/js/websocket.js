@@ -648,7 +648,6 @@ function handleLocalLlmDownload(payload) {
 	}
 }
 
-
 var eventHandlers = {
 	chat: handleChatEvent,
 	"exec.approval.requested": handleApprovalEvent,
