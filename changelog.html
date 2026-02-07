@@ -190,12 +190,40 @@ and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semant
 <h2 id="unreleased"><a class="header" href="#unreleased">[Unreleased]</a></h2>
 <h3 id="added"><a class="header" href="#added">Added</a></h3>
 <ul>
+<li><strong>Hooks Web UI</strong>: New <code>/hooks</code> page to manage lifecycle hooks from the browser
+<ul>
+<li>View all discovered hooks with eligibility status, source, and events</li>
+<li>Enable/disable hooks without removing files (persisted across restarts)</li>
+<li>Edit HOOK.md content in a monospace textarea and save back to disk</li>
+<li>Reload hooks at runtime to pick up changes without restarting</li>
+<li>Live stats (call count, failures, avg latency) from the hook registry</li>
+<li>WebSocket-driven auto-refresh via <code>hooks.status</code> event</li>
+<li>RPC methods: <code>hooks.list</code>, <code>hooks.enable</code>, <code>hooks.disable</code>, <code>hooks.save</code>, <code>hooks.reload</code></li>
+</ul>
+</li>
 <li><strong>Deploy platform detection</strong>: New <code>MOLTIS_DEPLOY_PLATFORM</code> env var hides local-only providers (local-llm, Ollama) on cloud deployments. Pre-configured in Fly.io, DigitalOcean, and Render deploy templates.</li>
+<li><strong>Telegram OTP self-approval</strong>: Non-allowlisted DM users receive a 6-digit verification code instead of being silently ignored. Correct code entry auto-approves the user to the allowlist. Includes flood protection (non-code messages silently ignored), lockout after 3 failed attempts (configurable cooldown), and 5-minute code expiry. OTP codes visible in web UI Senders tab. Controlled by <code>otp_self_approval</code> (default: true) and <code>otp_cooldown_secs</code> (default: 300) config fields.</li>
 </ul>
 <h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
 <ul>
+<li><strong>Documentation safety notice</strong>: Added an upfront alpha-software warning on the docs landing page, emphasizing careful deployment, isolation, and strong auth/network controls for self-hosted AI assistants.</li>
 <li><strong>Release packaging</strong>: Derive release artifact versions from the Git tag (<code>vX.Y.Z</code>) in CI, and sync package metadata during release jobs to prevent filename/version drift.</li>
 <li><strong>Versioning</strong>: Bump workspace and snap baseline version to <code>0.2.0</code>.</li>
+<li><strong>Onboarding auth flow</strong>: Route first-run setup directly into <code>/onboarding</code> and remove the separate <code>/setup</code> web UI page.</li>
+</ul>
+<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<ul>
+<li><strong>OAuth callback on hosted deployments</strong>: OpenAI Codex OAuth now uses the web app origin callback (<code>/auth/callback</code>) in the UI flow instead of hardcoded localhost loopback, allowing DigitalOcean/Fly/Render deployments to complete OAuth successfully.</li>
+<li><strong>Sandbox startup on hosted Docker environments</strong>: Skip sandbox image pre-build when sandbox mode is off, and require Docker daemon accessibility (not just Docker CLI presence) before selecting the Docker sandbox backend.</li>
+<li><strong>Homebrew release automation</strong>: Run the tap update in the release workflow after all package/image jobs complete so formula publishing does not race missing tarball assets.</li>
+<li><strong>Docker runtime</strong>: Install <code>libgomp1</code> in the runtime image to satisfy OpenMP-linked binaries and prevent startup failures with <code>libgomp.so.1</code> missing.</li>
+<li><strong>Release CI validation</strong>: Add a Docker smoke test step (<code>moltis --help</code>) after image build/push so missing runtime libraries fail in CI before release.</li>
+<li><strong>Web onboarding clarity</strong>: Add setup-code guidance that points users to the process log (stdout).</li>
+<li><strong>WebSocket auth (remote deployments)</strong>: Accept existing session/API-key auth from WebSocket upgrade headers so browser connections don’t immediately close after <code>connect</code> on hosted setups.</li>
+<li><strong>Sandbox UX on unsupported hosts</strong>: Disable sandbox controls in chat/images when no runtime backend is detected, with a tooltip explaining cloud deploy limitations.</li>
+<li><strong>Telegram OTP code echoed to LLM</strong>: After OTP self-approval, the verification code message was re-processed as a regular chat message because <code>sender_approve</code> restarted the bot polling loop (resetting the Telegram update offset). Sender approve/deny now hot-update the in-memory config without restarting the bot.</li>
+<li><strong>Empty allowlist bypassed access control</strong>: When <code>dm_policy = Allowlist</code> and all entries were removed, the empty list was treated as “allow everyone” instead of “deny everyone”. An explicit Allowlist policy with an empty list now correctly denies all access.</li>
+<li><strong>Telegram typing indicator for long responses</strong>: Channel replies now wait for outbound delivery tasks to finish before chat completion returns, so periodic <code>typing...</code> updates continue until the Telegram message is actually sent.</li>
 </ul>
 <h2 id="0110---2026-02-06"><a class="header" href="#0110---2026-02-06">[0.1.10] - 2026-02-06</a></h2>
 <h3 id="changed-1"><a class="header" href="#changed-1">Changed</a></h3>
@@ -208,23 +236,23 @@ and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semant
 <li><strong>CI builds</strong>: Migrate all release build jobs from self-hosted to GitHub-hosted runners for full parallelism (<code>ubuntu-latest</code>, <code>ubuntu-latest-arm</code>, <code>macos-latest</code>), remove all cross-compilation toolchain steps</li>
 </ul>
 <h2 id="018---2026-02-06"><a class="header" href="#018---2026-02-06">[0.1.8] - 2026-02-06</a></h2>
-<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<h3 id="fixed-1"><a class="header" href="#fixed-1">Fixed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Fix corrupted cargo config on all self-hosted runner jobs, fix macOS runner label, add llama-cpp build deps to Docker and Snap builds</li>
 </ul>
 <h2 id="017---2026-02-06"><a class="header" href="#017---2026-02-06">[0.1.7] - 2026-02-06</a></h2>
-<h3 id="fixed-1"><a class="header" href="#fixed-1">Fixed</a></h3>
+<h3 id="fixed-2"><a class="header" href="#fixed-2">Fixed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Use project-local <code>.cargo/config.toml</code> for cross-compilation instead of appending to global config (fixes duplicate key errors on self-hosted runners)</li>
 </ul>
 <h2 id="016---2026-02-06"><a class="header" href="#016---2026-02-06">[0.1.6] - 2026-02-06</a></h2>
-<h3 id="fixed-2"><a class="header" href="#fixed-2">Fixed</a></h3>
+<h3 id="fixed-3"><a class="header" href="#fixed-3">Fixed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Use macOS GitHub-hosted runners for apple-darwin binary builds instead of cross-compiling from Linux</li>
 <li><strong>CI performance</strong>: Run lightweight lint jobs (zizmor, biome, fmt) on GitHub-hosted runners to free up self-hosted runners</li>
 </ul>
 <h2 id="015---2026-02-06"><a class="header" href="#015---2026-02-06">[0.1.5] - 2026-02-06</a></h2>
-<h3 id="fixed-3"><a class="header" href="#fixed-3">Fixed</a></h3>
+<h3 id="fixed-4"><a class="header" href="#fixed-4">Fixed</a></h3>
 <ul>
 <li><strong>CI security</strong>: Use GitHub-hosted runners for PRs to prevent untrusted code from running on self-hosted infrastructure</li>
 <li><strong>CI security</strong>: Add <code>persist-credentials: false</code> to docs workflow checkout (fixes zizmor artipacked warning)</li>
@@ -385,7 +413,7 @@ registration.</p>
 <code>clone_without_prefix("mcp__")</code> in all three call sites.</p>
 </li>
 </ul>
-<h3 id="fixed-4"><a class="header" href="#fixed-4">Fixed</a></h3>
+<h3 id="fixed-5"><a class="header" href="#fixed-5">Fixed</a></h3>
 <ul>
 <li>Push notifications not sending when chat uses agent mode (run_with_tools)</li>
 <li>Missing space in Safari install instructions (“usingFile” → “using File”)</li>
