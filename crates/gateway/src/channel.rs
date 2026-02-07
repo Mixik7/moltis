@@ -611,6 +611,12 @@ impl ChannelService for LiveChannelService {
 
         let allowlist = self.get_allowlist(account_id).await;
 
+        // Query pending OTP challenges for this account.
+        let otp_challenges = {
+            let tg_inner = self.telegram.read().await;
+            tg_inner.pending_otp_challenges(account_id)
+        };
+
         let list: Vec<Value> = senders
             .into_iter()
             .map(|s| {
@@ -621,14 +627,22 @@ impl ChannelService for LiveChannelService {
                             .as_ref()
                             .is_some_and(|u| a_lower == u.to_lowercase())
                 });
-                serde_json::json!({
+                let mut entry = serde_json::json!({
                     "peer_id": s.peer_id,
                     "username": s.username,
                     "sender_name": s.sender_name,
                     "message_count": s.message_count,
                     "last_seen": s.last_seen,
                     "allowed": is_allowed,
-                })
+                });
+                // Attach OTP info if a challenge is pending for this peer.
+                if let Some(otp) = otp_challenges.iter().find(|c| c.peer_id == s.peer_id) {
+                    entry["otp_pending"] = serde_json::json!({
+                        "code": otp.code,
+                        "expires_at": otp.expires_at,
+                    });
+                }
+                entry
             })
             .collect();
 
@@ -695,9 +709,19 @@ impl ChannelService for LiveChannelService {
             warn!(error = %e, account_id, "failed to persist sender approval");
         }
 
-        // Restart account with new config.
-        self.restart_account(&stored.channel_type, account_id, config)
-            .await?;
+        // Hot-update config for Telegram (preserves polling offset), restart for WhatsApp.
+        match stored.channel_type.as_str() {
+            "telegram" => {
+                let tg = self.telegram.read().await;
+                if let Err(e) = tg.update_account_config(account_id, config) {
+                    warn!(error = %e, account_id, "failed to hot-update config for sender approval");
+                }
+            },
+            _ => {
+                self.restart_account(&stored.channel_type, account_id, config)
+                    .await?;
+            },
+        }
 
         info!(account_id, identifier, "sender approved");
         Ok(serde_json::json!({ "approved": identifier }))
@@ -747,9 +771,19 @@ impl ChannelService for LiveChannelService {
             warn!(error = %e, account_id, "failed to persist sender denial");
         }
 
-        // Restart account with new config.
-        self.restart_account(&stored.channel_type, account_id, config)
-            .await?;
+        // Hot-update config for Telegram (no restart needed), restart for WhatsApp.
+        match stored.channel_type.as_str() {
+            "telegram" => {
+                let tg = self.telegram.read().await;
+                if let Err(e) = tg.update_account_config(account_id, config) {
+                    warn!(error = %e, account_id, "failed to hot-update config for sender denial");
+                }
+            },
+            _ => {
+                self.restart_account(&stored.channel_type, account_id, config)
+                    .await?;
+            },
+        }
 
         info!(account_id, identifier, "sender denied");
         Ok(serde_json::json!({ "denied": identifier }))
