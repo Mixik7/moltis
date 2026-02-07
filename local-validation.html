@@ -205,6 +205,7 @@ statuses to GitHub:</p>
 <li><code>local/fmt</code></li>
 <li><code>local/biome</code></li>
 <li><code>local/zizmor</code></li>
+<li><code>local/lockfile</code> — verifies <code>Cargo.lock</code> is in sync (<code>cargo fetch --locked</code>)</li>
 <li><code>local/lint</code></li>
 <li><code>local/test</code></li>
 </ul>
@@ -212,6 +213,8 @@ statuses to GitHub:</p>
 checks in the PR.</p>
 <h2 id="notes"><a class="header" href="#notes">Notes</a></h2>
 <ul>
+<li>The script requires a clean working tree (no uncommitted or untracked
+changes). Commit or stash local changes before running.</li>
 <li>On macOS without CUDA (<code>nvcc</code>), the script automatically falls back to
 non-CUDA lint/test defaults for local runs.</li>
 <li><code>zizmor</code> is installed automatically (Homebrew on macOS, apt on Linux) when
