@@ -1,0 +1,425 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Changelog - Moltis Documentation</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="Documentation for Moltis - Your AI coding assistant">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="theme/admonish.css">
+        <link rel="stylesheet" href="theme/custom.css">
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Moltis Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/moltis-org/moltis" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/moltis-org/moltis/edit/main/docs/src/src/changelog.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="changelog"><a class="header" href="#changelog">Changelog</a></h1>
+<p>All notable changes to this project will be documented in this file.</p>
+<p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
+and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
+<h2 id="unreleased"><a class="header" href="#unreleased">[Unreleased]</a></h2>
+<h2 id="014---2026-02-06"><a class="header" href="#014---2026-02-06">[0.1.4] - 2026-02-06</a></h2>
+<h3 id="added"><a class="header" href="#added">Added</a></h3>
+<ul>
+<li>
+<p><strong>Config Check Command</strong>: <code>moltis config check</code> validates the configuration file, detects unknown/misspelled fields with Levenshtein-based suggestions, warns about security misconfigurations, and checks file references</p>
+</li>
+<li>
+<p><strong>Memory Usage Indicator</strong>: Display process RSS and system free memory in the header bar, updated every 30 seconds via the tick WebSocket broadcast</p>
+</li>
+<li>
+<p><strong>QMD Backend Support</strong>: Optional QMD (Query Memory Daemon) backend for hybrid search with BM25 + vector + LLM reranking</p>
+<ul>
+<li>Gated behind <code>qmd</code> feature flag (enabled by default)</li>
+<li>Web UI shows installation instructions and QMD status</li>
+<li>Comparison table between built-in SQLite and QMD backends</li>
+</ul>
+</li>
+<li>
+<p><strong>Citations</strong>: Configurable citation mode (on/off/auto) for memory search results</p>
+<ul>
+<li>Auto mode includes citations when results span multiple files</li>
+</ul>
+</li>
+<li>
+<p><strong>Session Export</strong>: Option to export session transcripts to memory for future reference</p>
+</li>
+<li>
+<p><strong>LLM Reranking</strong>: Use LLM to rerank search results for improved relevance (requires QMD)</p>
+</li>
+<li>
+<p><strong>Memory Documentation</strong>: Added <code>docs/src/memory.md</code> with comprehensive memory system documentation</p>
+</li>
+<li>
+<p><strong>Mobile PWA Support</strong>: Install moltis as a Progressive Web App on iOS, Android, and desktop</p>
+<ul>
+<li>Standalone mode with full-screen experience</li>
+<li>Custom app icon (crab mascot)</li>
+<li>Service worker for offline support and caching</li>
+<li>Safe area support for notched devices</li>
+</ul>
+</li>
+<li>
+<p><strong>Push Notifications</strong>: Receive alerts when the LLM responds</p>
+<ul>
+<li>VAPID key generation and storage for Web Push API</li>
+<li>Subscribe/unsubscribe toggle in Settings &gt; Notifications</li>
+<li>Subscription management UI showing device name, IP address, and date</li>
+<li>Remove any subscription from any device</li>
+<li>Real-time subscription updates via WebSocket</li>
+<li>Client IP detection from X-Forwarded-For, X-Real-IP, CF-Connecting-IP headers</li>
+<li>Notifications sent for both streaming and agent (tool-using) chat modes</li>
+</ul>
+</li>
+<li>
+<p><strong>Safari/iOS PWA Detection</strong>: Show “Add to Dock” instructions when push notifications
+require PWA installation (Safari doesn’t support push in browser mode)</p>
+</li>
+<li>
+<p><strong>Session state store</strong>: per-session key-value persistence scoped by
+namespace, backed by SQLite (<code>session_state</code> tool).</p>
+</li>
+<li>
+<p><strong>Session branching</strong>: <code>branch_session</code> tool forks a conversation at any
+message index into an independent copy.</p>
+</li>
+<li>
+<p><strong>Session fork from UI</strong>: Fork button in the chat header and sidebar action
+buttons let users fork sessions without asking the LLM. Forked sessions
+appear indented under their parent with a branch icon.</p>
+</li>
+<li>
+<p><strong>Skill self-extension</strong>: <code>create_skill</code>, <code>update_skill</code>, <code>delete_skill</code>
+tools let the agent manage project-local skills at runtime.</p>
+</li>
+<li>
+<p><strong>Skill hot-reload</strong>: filesystem watcher on skill directories emits
+<code>skills.changed</code> events via WebSocket when SKILL.md files change.</p>
+</li>
+<li>
+<p><strong>Typed tool sources</strong>: <code>ToolSource</code> enum (<code>Builtin</code> / <code>Mcp { server }</code>)
+replaces string-prefix identification of MCP tools in the tool registry.</p>
+</li>
+<li>
+<p><strong>Tool registry metadata</strong>: <code>list_schemas()</code> now includes <code>source</code> and
+<code>mcpServer</code> fields so the UI can group tools by origin.</p>
+</li>
+<li>
+<p><strong>Per-session MCP toggle</strong>: sessions store an <code>mcp_disabled</code> flag; the chat
+header exposes a toggle button to enable/disable MCP tools per session.</p>
+</li>
+<li>
+<p><strong>Debug panel convergence</strong>: the debug side-panel now renders the same seven
+sections as the <code>/context</code> slash command, eliminating duplicated rendering
+logic.</p>
+</li>
+<li>
+<p>Documentation pages for session state, session branching, skill
+self-extension, and the tool registry architecture.</p>
+</li>
+</ul>
+<h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
+<ul>
+<li>
+<p>Memory settings UI enhanced with backend comparison and feature explanations</p>
+</li>
+<li>
+<p>Added <code>memory.qmd.status</code> RPC method for checking QMD availability</p>
+</li>
+<li>
+<p>Extended <code>memory.config.get</code> to include <code>qmd_feature_enabled</code> flag</p>
+</li>
+<li>
+<p>Push notifications feature is now enabled by default in the CLI</p>
+</li>
+<li>
+<p><strong>TLS HTTP redirect port</strong> now defaults to <code>gateway_port + 1</code> instead of
+the hardcoded port <code>18790</code>. This makes the Dockerfile simpler (both ports
+are adjacent) and avoids collisions when running multiple instances.
+Override via <code>[tls] http_redirect_port</code> in <code>moltis.toml</code> or the
+<code>MOLTIS_TLS__HTTP_REDIRECT_PORT</code> environment variable.</p>
+</li>
+<li>
+<p><strong>TLS certificates use <code>moltis.localhost</code> domain.</strong> Auto-generated server
+certs now include <code>moltis.localhost</code>, <code>*.moltis.localhost</code>, <code>localhost</code>,
+<code>127.0.0.1</code>, and <code>::1</code> as SANs. Banner and redirect URLs use
+<code>https://moltis.localhost:&lt;port&gt;</code> when bound to loopback, so the cert
+matches the displayed URL. Existing certs are automatically regenerated
+on next startup.</p>
+</li>
+<li>
+<p><strong>Certificate validity uses dynamic dates.</strong> Cert <code>notBefore</code>/<code>notAfter</code>
+are now computed from the current system time instead of being hardcoded.
+CA certs are valid for 10 years, server certs for 1 year from generation.</p>
+</li>
+<li>
+<p><code>McpToolBridge</code> now stores and exposes <code>server_name()</code> for typed
+registration.</p>
+</li>
+<li>
+<p><code>mcp_service::sync_mcp_tools()</code> uses <code>unregister_mcp()</code> /
+<code>register_mcp()</code> instead of scanning tool names by prefix.</p>
+</li>
+<li>
+<p><code>chat.rs</code> uses <code>clone_without_mcp()</code> instead of
+<code>clone_without_prefix("mcp__")</code> in all three call sites.</p>
+</li>
+</ul>
+<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<ul>
+<li>Push notifications not sending when chat uses agent mode (run_with_tools)</li>
+<li>Missing space in Safari install instructions (“usingFile” → “using File”)</li>
+<li><strong>WebSocket origin validation</strong> now treats <code>.localhost</code> subdomains
+(e.g. <code>moltis.localhost</code>) as loopback equivalents per RFC 6761.</li>
+<li>Fork/branch icon in session sidebar now renders cleanly at 16px (replaced
+complex git-branch SVG with simple trunk+branch path).</li>
+<li>Deleting a forked session now navigates to the parent session instead of
+an unrelated sibling.</li>
+<li><strong>Streaming tool calls for non-Anthropic providers</strong>: <code>OpenAiProvider</code>,
+<code>GitHubCopilotProvider</code>, <code>KimiCodeProvider</code>, <code>OpenAiCodexProvider</code>, and
+<code>ProviderChain</code> now implement <code>stream_with_tools()</code> so tool schemas are
+sent in the streaming API request and tool-call events are properly parsed.
+Previously only <code>AnthropicProvider</code> supported streaming tool calls; all
+other providers silently dropped the tools parameter, causing the LLM to
+emit tool invocations as plain text instead of structured function calls.</li>
+<li><strong>Streaming tool call arguments dropped when index ≠ 0</strong>: When a provider
+(e.g. GitHub Copilot proxying Claude) emits a text content block at
+streaming index 0 and a tool_use block at index 1, the runner’s argument
+finalization used the streaming index as the vector position directly.
+Since <code>tool_calls</code> has only 1 element at position 0, the condition
+<code>1 &lt; 1</code> was false and arguments were silently dropped (empty <code>{}</code>).
+Fixed by mapping streaming indices to vector positions via a HashMap.</li>
+<li><strong>Skill tools wrote to wrong directory</strong>: <code>create_skill</code>, <code>update_skill</code>, and
+<code>delete_skill</code> used <code>std::env::current_dir()</code> captured at gateway startup,
+writing skills to <code>&lt;cwd&gt;/.moltis/skills/</code> instead of <code>~/.moltis/skills/</code>.
+Skills now write to <code>&lt;data_dir&gt;/skills/</code> (Personal source), which is always
+discovered regardless of where the gateway was started.</li>
+<li><strong>Skills page missing personal/project skills</strong>: The <code>/api/skills</code> endpoint
+only returned manifest-based registry skills. Personal and project-local
+skills were never shown in the navigation or skills page. The endpoint now
+discovers and includes them alongside registry skills.</li>
+</ul>
+<h3 id="documentation"><a class="header" href="#documentation">Documentation</a></h3>
+<ul>
+<li>Added mobile-pwa.md with PWA installation and push notification documentation</li>
+<li>Updated CLAUDE.md with cargo feature policy (features enabled by default)</li>
+<li>Rewrote session-branching.md with accurate fork details, UI methods, RPC
+API, inheritance table, and deletion behavior.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="tool-registry.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="tool-registry.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>

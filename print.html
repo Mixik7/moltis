@@ -3391,6 +3391,199 @@ let removed_count = registry.unregister_mcp();
 </code></pre>
 <p>The <code>source</code> and <code>mcpServer</code> fields are available to the UI for rendering
 tools grouped by origin.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="changelog"><a class="header" href="#changelog">Changelog</a></h1>
+<p>All notable changes to this project will be documented in this file.</p>
+<p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
+and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
+<h2 id="unreleased"><a class="header" href="#unreleased">[Unreleased]</a></h2>
+<h2 id="014---2026-02-06"><a class="header" href="#014---2026-02-06">[0.1.4] - 2026-02-06</a></h2>
+<h3 id="added"><a class="header" href="#added">Added</a></h3>
+<ul>
+<li>
+<p><strong>Config Check Command</strong>: <code>moltis config check</code> validates the configuration file, detects unknown/misspelled fields with Levenshtein-based suggestions, warns about security misconfigurations, and checks file references</p>
+</li>
+<li>
+<p><strong>Memory Usage Indicator</strong>: Display process RSS and system free memory in the header bar, updated every 30 seconds via the tick WebSocket broadcast</p>
+</li>
+<li>
+<p><strong>QMD Backend Support</strong>: Optional QMD (Query Memory Daemon) backend for hybrid search with BM25 + vector + LLM reranking</p>
+<ul>
+<li>Gated behind <code>qmd</code> feature flag (enabled by default)</li>
+<li>Web UI shows installation instructions and QMD status</li>
+<li>Comparison table between built-in SQLite and QMD backends</li>
+</ul>
+</li>
+<li>
+<p><strong>Citations</strong>: Configurable citation mode (on/off/auto) for memory search results</p>
+<ul>
+<li>Auto mode includes citations when results span multiple files</li>
+</ul>
+</li>
+<li>
+<p><strong>Session Export</strong>: Option to export session transcripts to memory for future reference</p>
+</li>
+<li>
+<p><strong>LLM Reranking</strong>: Use LLM to rerank search results for improved relevance (requires QMD)</p>
+</li>
+<li>
+<p><strong>Memory Documentation</strong>: Added <code>docs/src/memory.md</code> with comprehensive memory system documentation</p>
+</li>
+<li>
+<p><strong>Mobile PWA Support</strong>: Install moltis as a Progressive Web App on iOS, Android, and desktop</p>
+<ul>
+<li>Standalone mode with full-screen experience</li>
+<li>Custom app icon (crab mascot)</li>
+<li>Service worker for offline support and caching</li>
+<li>Safe area support for notched devices</li>
+</ul>
+</li>
+<li>
+<p><strong>Push Notifications</strong>: Receive alerts when the LLM responds</p>
+<ul>
+<li>VAPID key generation and storage for Web Push API</li>
+<li>Subscribe/unsubscribe toggle in Settings &gt; Notifications</li>
+<li>Subscription management UI showing device name, IP address, and date</li>
+<li>Remove any subscription from any device</li>
+<li>Real-time subscription updates via WebSocket</li>
+<li>Client IP detection from X-Forwarded-For, X-Real-IP, CF-Connecting-IP headers</li>
+<li>Notifications sent for both streaming and agent (tool-using) chat modes</li>
+</ul>
+</li>
+<li>
+<p><strong>Safari/iOS PWA Detection</strong>: Show “Add to Dock” instructions when push notifications
+require PWA installation (Safari doesn’t support push in browser mode)</p>
+</li>
+<li>
+<p><strong>Session state store</strong>: per-session key-value persistence scoped by
+namespace, backed by SQLite (<code>session_state</code> tool).</p>
+</li>
+<li>
+<p><strong>Session branching</strong>: <code>branch_session</code> tool forks a conversation at any
+message index into an independent copy.</p>
+</li>
+<li>
+<p><strong>Session fork from UI</strong>: Fork button in the chat header and sidebar action
+buttons let users fork sessions without asking the LLM. Forked sessions
+appear indented under their parent with a branch icon.</p>
+</li>
+<li>
+<p><strong>Skill self-extension</strong>: <code>create_skill</code>, <code>update_skill</code>, <code>delete_skill</code>
+tools let the agent manage project-local skills at runtime.</p>
+</li>
+<li>
+<p><strong>Skill hot-reload</strong>: filesystem watcher on skill directories emits
+<code>skills.changed</code> events via WebSocket when SKILL.md files change.</p>
+</li>
+<li>
+<p><strong>Typed tool sources</strong>: <code>ToolSource</code> enum (<code>Builtin</code> / <code>Mcp { server }</code>)
+replaces string-prefix identification of MCP tools in the tool registry.</p>
+</li>
+<li>
+<p><strong>Tool registry metadata</strong>: <code>list_schemas()</code> now includes <code>source</code> and
+<code>mcpServer</code> fields so the UI can group tools by origin.</p>
+</li>
+<li>
+<p><strong>Per-session MCP toggle</strong>: sessions store an <code>mcp_disabled</code> flag; the chat
+header exposes a toggle button to enable/disable MCP tools per session.</p>
+</li>
+<li>
+<p><strong>Debug panel convergence</strong>: the debug side-panel now renders the same seven
+sections as the <code>/context</code> slash command, eliminating duplicated rendering
+logic.</p>
+</li>
+<li>
+<p>Documentation pages for session state, session branching, skill
+self-extension, and the tool registry architecture.</p>
+</li>
+</ul>
+<h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
+<ul>
+<li>
+<p>Memory settings UI enhanced with backend comparison and feature explanations</p>
+</li>
+<li>
+<p>Added <code>memory.qmd.status</code> RPC method for checking QMD availability</p>
+</li>
+<li>
+<p>Extended <code>memory.config.get</code> to include <code>qmd_feature_enabled</code> flag</p>
+</li>
+<li>
+<p>Push notifications feature is now enabled by default in the CLI</p>
+</li>
+<li>
+<p><strong>TLS HTTP redirect port</strong> now defaults to <code>gateway_port + 1</code> instead of
+the hardcoded port <code>18790</code>. This makes the Dockerfile simpler (both ports
+are adjacent) and avoids collisions when running multiple instances.
+Override via <code>[tls] http_redirect_port</code> in <code>moltis.toml</code> or the
+<code>MOLTIS_TLS__HTTP_REDIRECT_PORT</code> environment variable.</p>
+</li>
+<li>
+<p><strong>TLS certificates use <code>moltis.localhost</code> domain.</strong> Auto-generated server
+certs now include <code>moltis.localhost</code>, <code>*.moltis.localhost</code>, <code>localhost</code>,
+<code>127.0.0.1</code>, and <code>::1</code> as SANs. Banner and redirect URLs use
+<code>https://moltis.localhost:&lt;port&gt;</code> when bound to loopback, so the cert
+matches the displayed URL. Existing certs are automatically regenerated
+on next startup.</p>
+</li>
+<li>
+<p><strong>Certificate validity uses dynamic dates.</strong> Cert <code>notBefore</code>/<code>notAfter</code>
+are now computed from the current system time instead of being hardcoded.
+CA certs are valid for 10 years, server certs for 1 year from generation.</p>
+</li>
+<li>
+<p><code>McpToolBridge</code> now stores and exposes <code>server_name()</code> for typed
+registration.</p>
+</li>
+<li>
+<p><code>mcp_service::sync_mcp_tools()</code> uses <code>unregister_mcp()</code> /
+<code>register_mcp()</code> instead of scanning tool names by prefix.</p>
+</li>
+<li>
+<p><code>chat.rs</code> uses <code>clone_without_mcp()</code> instead of
+<code>clone_without_prefix("mcp__")</code> in all three call sites.</p>
+</li>
+</ul>
+<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<ul>
+<li>Push notifications not sending when chat uses agent mode (run_with_tools)</li>
+<li>Missing space in Safari install instructions (“usingFile” → “using File”)</li>
+<li><strong>WebSocket origin validation</strong> now treats <code>.localhost</code> subdomains
+(e.g. <code>moltis.localhost</code>) as loopback equivalents per RFC 6761.</li>
+<li>Fork/branch icon in session sidebar now renders cleanly at 16px (replaced
+complex git-branch SVG with simple trunk+branch path).</li>
+<li>Deleting a forked session now navigates to the parent session instead of
+an unrelated sibling.</li>
+<li><strong>Streaming tool calls for non-Anthropic providers</strong>: <code>OpenAiProvider</code>,
+<code>GitHubCopilotProvider</code>, <code>KimiCodeProvider</code>, <code>OpenAiCodexProvider</code>, and
+<code>ProviderChain</code> now implement <code>stream_with_tools()</code> so tool schemas are
+sent in the streaming API request and tool-call events are properly parsed.
+Previously only <code>AnthropicProvider</code> supported streaming tool calls; all
+other providers silently dropped the tools parameter, causing the LLM to
+emit tool invocations as plain text instead of structured function calls.</li>
+<li><strong>Streaming tool call arguments dropped when index ≠ 0</strong>: When a provider
+(e.g. GitHub Copilot proxying Claude) emits a text content block at
+streaming index 0 and a tool_use block at index 1, the runner’s argument
+finalization used the streaming index as the vector position directly.
+Since <code>tool_calls</code> has only 1 element at position 0, the condition
+<code>1 &lt; 1</code> was false and arguments were silently dropped (empty <code>{}</code>).
+Fixed by mapping streaming indices to vector positions via a HashMap.</li>
+<li><strong>Skill tools wrote to wrong directory</strong>: <code>create_skill</code>, <code>update_skill</code>, and
+<code>delete_skill</code> used <code>std::env::current_dir()</code> captured at gateway startup,
+writing skills to <code>&lt;cwd&gt;/.moltis/skills/</code> instead of <code>~/.moltis/skills/</code>.
+Skills now write to <code>&lt;data_dir&gt;/skills/</code> (Personal source), which is always
+discovered regardless of where the gateway was started.</li>
+<li><strong>Skills page missing personal/project skills</strong>: The <code>/api/skills</code> endpoint
+only returned manifest-based registry skills. Personal and project-local
+skills were never shown in the navigation or skills page. The endpoint now
+discovers and includes them alongside registry skills.</li>
+</ul>
+<h3 id="documentation-1"><a class="header" href="#documentation-1">Documentation</a></h3>
+<ul>
+<li>Added mobile-pwa.md with PWA installation and push notification documentation</li>
+<li>Updated CLAUDE.md with cargo feature policy (features enabled by default)</li>
+<li>Rewrote session-branching.md with accurate fork details, UI methods, RPC
+API, inheritance table, and deletion behavior.</li>
+</ul>
 
                     </main>
 
