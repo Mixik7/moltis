@@ -2446,13 +2446,13 @@ async fn build_gon_data(gw: &GatewayState) -> GonData {
         .unwrap_or_default();
 
     let (policy, trusted_domains) = if let Some(ref router) = gw.sandbox_router {
-        let cfg = router.config();
-        let policy = match cfg.network {
+        let global_policy = router.global_network_policy().await;
+        let policy = match global_policy {
             moltis_tools::sandbox::NetworkPolicy::Blocked => "blocked",
             moltis_tools::sandbox::NetworkPolicy::Trusted => "trusted",
             moltis_tools::sandbox::NetworkPolicy::Open => "open",
         };
-        (policy.to_string(), cfg.trusted_domains.clone())
+        (policy.to_string(), router.config().trusted_domains.clone())
     } else {
         ("blocked".to_string(), vec![])
     };

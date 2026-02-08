@@ -135,6 +135,7 @@ const WRITE_METHODS: &[&str] = &[
     "plugins.repos.remove",
     "plugins.skill.enable",
     "plugins.skill.disable",
+    "sandbox.network_policy.set",
     "sandbox.trusted_domain.add",
     "sandbox.trusted_domain.remove",
     "sandbox.domain_approval.resolve",
@@ -2563,16 +2564,58 @@ impl MethodRegistry {
                     let router = ctx.state.sandbox_router.as_ref().ok_or_else(|| {
                         ErrorShape::new(error_codes::UNAVAILABLE, "sandbox not configured")
                     })?;
-                    let cfg = router.config();
-                    let policy = match cfg.network {
+                    let policy = match router.global_network_policy().await {
                         moltis_tools::sandbox::NetworkPolicy::Blocked => "blocked",
                         moltis_tools::sandbox::NetworkPolicy::Trusted => "trusted",
                         moltis_tools::sandbox::NetworkPolicy::Open => "open",
                     };
                     Ok(serde_json::json!({
                         "policy": policy,
-                        "trusted_domains": cfg.trusted_domains,
+                        "trusted_domains": router.config().trusted_domains,
                     }))
+                })
+            }),
+        );
+        self.register(
+            "sandbox.network_policy.set",
+            Box::new(|ctx| {
+                Box::pin(async move {
+                    let router = ctx.state.sandbox_router.as_ref().ok_or_else(|| {
+                        ErrorShape::new(error_codes::UNAVAILABLE, "sandbox not configured")
+                    })?;
+                    let policy_str = ctx
+                        .params
+                        .get("policy")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            ErrorShape::new(error_codes::INVALID_REQUEST, "missing policy")
+                        })?;
+                    let policy = match policy_str {
+                        "blocked" => moltis_tools::sandbox::NetworkPolicy::Blocked,
+                        "trusted" => moltis_tools::sandbox::NetworkPolicy::Trusted,
+                        "open" => moltis_tools::sandbox::NetworkPolicy::Open,
+                        _ => {
+                            return Err(ErrorShape::new(
+                                error_codes::INVALID_REQUEST,
+                                format!("invalid policy: {policy_str} (expected: blocked, trusted, open)"),
+                            ))
+                        },
+                    };
+                    router.set_global_network_policy(Some(policy)).await;
+
+                    // Broadcast the change so UI can update.
+                    crate::broadcast::broadcast(
+                        &ctx.state,
+                        "sandbox.network_policy.changed",
+                        serde_json::json!({ "policy": policy_str }),
+                        crate::broadcast::BroadcastOpts {
+                            drop_if_slow: true,
+                            ..Default::default()
+                        },
+                    )
+                    .await;
+
+                    Ok(serde_json::json!({ "ok": true, "policy": policy_str }))
                 })
             }),
         );

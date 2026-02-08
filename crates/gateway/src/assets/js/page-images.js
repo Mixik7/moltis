@@ -4,6 +4,7 @@ import { signal } from "@preact/signals";
 import { html } from "htm/preact";
 import { render } from "preact";
 import { useEffect } from "preact/hooks";
+import * as gon from "./gon.js";
 import { updateNavCount } from "./nav-counts.js";
 import { registerPage } from "./router.js";
 import { sandboxInfo } from "./signals.js";
@@ -20,11 +21,29 @@ var building = signal(false);
 var buildStatus = signal("");
 var buildWarning = signal("");
 var pruning = signal(false);
+var networkPolicy = signal("blocked");
+var savingNetworkPolicy = signal(false);
 var SANDBOX_DISABLED_HINT =
 	"Sandboxes are disabled on cloud deploys without a container runtime. Install on a VM with Docker or Apple Container to enable this feature.";
 
 function sandboxRuntimeAvailable() {
 	return (sandboxInfo.value?.backend || "none") !== "none";
+}
+
+function setNetworkPolicy(policy) {
+	savingNetworkPolicy.value = true;
+	S.rpc("sandbox.network_policy.set", { policy })
+		.then((res) => {
+			if (res.ok) {
+				networkPolicy.value = res.policy;
+			}
+		})
+		.catch(() => {
+			/* ignore */
+		})
+		.finally(() => {
+			savingNetworkPolicy.value = false;
+		});
 }
 
 function fetchImages() {
@@ -270,6 +289,74 @@ function DefaultImageSelector() {
   </div>`;
 }
 
+var NETWORK_POLICIES = [
+	{
+		value: "blocked",
+		label: "Blocked",
+		description: "No network access (--network=none). Safest option for untrusted code.",
+	},
+	{
+		value: "trusted",
+		label: "Trusted",
+		description:
+			"Filtered network via HTTP proxy. Only whitelisted domains allowed. Unlisted domains prompt for approval.",
+	},
+	{
+		value: "open",
+		label: "Open",
+		description: "Unrestricted network access (default bridge). Use only for trusted code.",
+	},
+];
+
+function NetworkPolicySelector() {
+	var sandboxAvailable = sandboxRuntimeAvailable();
+	var current = networkPolicy.value;
+	var saving = savingNetworkPolicy.value;
+
+	function onChange(e) {
+		setNetworkPolicy(e.target.value);
+	}
+
+	return html`<div class="max-w-form" style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
+    <h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">Network policy</h3>
+    <p class="text-xs text-[var(--muted)]" style="margin:0 0 12px;">
+      Controls network access for sandboxed containers. Changes apply to new sandbox sessions.
+    </p>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${NETWORK_POLICIES.map(
+				(opt) => html`
+        <label key=${opt.value}
+          class="provider-item"
+          style="cursor:${sandboxAvailable && !saving ? "pointer" : "not-allowed"};opacity:${sandboxAvailable ? 1 : 0.6};padding:10px 12px;">
+          <input type="radio" name="network-policy"
+            value=${opt.value}
+            checked=${current === opt.value}
+            disabled=${!sandboxAvailable || saving}
+            onChange=${onChange}
+            style="margin-right:10px;" />
+          <div style="flex:1;">
+            <div style="font-weight:500;color:var(--text-strong);">${opt.label}</div>
+            <div style="font-size:.75rem;color:var(--muted);margin-top:2px;">${opt.description}</div>
+          </div>
+          ${
+						saving &&
+						current === opt.value &&
+						html`<span style="font-size:.7rem;color:var(--muted);">Saving\u2026</span>`
+					}
+        </label>
+      `,
+			)}
+    </div>
+    ${
+			current === "trusted" &&
+			html`<div class="alert-info-text" style="margin-top:12px;">
+      <span class="alert-label-info">Tip:</span>${" "}
+      Manage trusted domains in Settings \u2192 Network, or approve them interactively when requests are blocked.
+    </div>`
+		}
+  </div>`;
+}
+
 function ImageRow(props) {
 	var img = props.image;
 	var sandboxAvailable = props.sandboxAvailable;
@@ -314,6 +401,8 @@ function ImagesPage() {
       <${SandboxBanner} />
 
       <${DefaultImageSelector} />
+
+      <${NetworkPolicySelector} />
 
       <!-- Cached images list -->
       <div class="max-w-form">
@@ -379,6 +468,7 @@ registerPage(
 		container.style.cssText = "flex-direction:column;padding:0;overflow:hidden;";
 		images.value = [];
 		defaultImage.value = sandboxInfo.value?.default_image || "";
+		networkPolicy.value = gon.get("network")?.policy || "blocked";
 		buildStatus.value = "";
 		buildWarning.value = "";
 		render(html`<${ImagesPage} />`, container);

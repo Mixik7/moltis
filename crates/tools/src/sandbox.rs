@@ -1267,6 +1267,8 @@ pub struct SandboxRouter {
     image_overrides: RwLock<HashMap<String, String>>,
     /// Runtime override for the global default image (set via API, persisted externally).
     global_image_override: RwLock<Option<String>>,
+    /// Runtime override for the global network policy (set via API, persisted externally).
+    global_network_override: RwLock<Option<NetworkPolicy>>,
     /// Per-session network policy overrides.
     network_overrides: RwLock<HashMap<String, NetworkPolicy>>,
     /// Event channel for sandbox events (provision start/done/error).
@@ -1285,6 +1287,7 @@ impl SandboxRouter {
             overrides: RwLock::new(HashMap::new()),
             image_overrides: RwLock::new(HashMap::new()),
             global_image_override: RwLock::new(None),
+            global_network_override: RwLock::new(None),
             network_overrides: RwLock::new(HashMap::new()),
             event_tx,
         }
@@ -1299,6 +1302,7 @@ impl SandboxRouter {
             overrides: RwLock::new(HashMap::new()),
             image_overrides: RwLock::new(HashMap::new()),
             global_image_override: RwLock::new(None),
+            global_network_override: RwLock::new(None),
             network_overrides: RwLock::new(HashMap::new()),
             event_tx,
         }
@@ -1400,9 +1404,28 @@ impl SandboxRouter {
         self.network_overrides.write().await.remove(session_key);
     }
 
-    /// Get the effective network policy for a session (override > global config).
+    /// Get the effective network policy for a session.
+    ///
+    /// Priority (highest to lowest):
+    /// 1. Per-session override
+    /// 2. Runtime global override (`set_global_network_policy`)
+    /// 3. Config file setting
     pub async fn effective_network_policy(&self, session_key: &str) -> NetworkPolicy {
         if let Some(policy) = self.network_overrides.read().await.get(session_key) {
+            return policy.clone();
+        }
+        self.global_network_policy().await
+    }
+
+    /// Set a runtime override for the global network policy.
+    /// Pass `None` to revert to the config setting.
+    pub async fn set_global_network_policy(&self, policy: Option<NetworkPolicy>) {
+        *self.global_network_override.write().await = policy;
+    }
+
+    /// Get the current effective global network policy (runtime override > config).
+    pub async fn global_network_policy(&self) -> NetworkPolicy {
+        if let Some(ref policy) = *self.global_network_override.read().await {
             return policy.clone();
         }
         self.config.network.clone()
