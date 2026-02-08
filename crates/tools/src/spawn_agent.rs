@@ -294,10 +294,15 @@ impl AgentTool for SpawnAgentTool {
         {
             let mut registry = moltis_common::hooks::HookRegistry::new();
             for hc in hook_configs {
+                let events: Vec<moltis_common::hooks::HookEvent> = hc
+                    .events
+                    .iter()
+                    .filter_map(|s| serde_json::from_value(serde_json::Value::String(s.clone())).ok())
+                    .collect();
                 let handler = moltis_common::shell_hook::ShellHookHandler::new(
                     hc.name.clone(),
                     hc.command.clone(),
-                    hc.events.clone(),
+                    events,
                     std::time::Duration::from_secs(hc.timeout),
                     hc.env.clone(),
                 );
@@ -424,10 +429,6 @@ fn build_sub_agent_prompt(
         }
         if let Some(ref vibe) = p.identity.vibe {
             prompt.push_str(&format!("Your style is {vibe}. "));
-        }
-        if let Some(ref soul) = p.identity.soul {
-            prompt.push_str(soul);
-            prompt.push(' ');
         }
     }
 
@@ -743,7 +744,6 @@ mod tests {
                 name: Some("scout".into()),
                 creature: Some("helpful owl".into()),
                 vibe: Some("focused and efficient".into()),
-                soul: Some("I love finding information.".into()),
                 ..Default::default()
             },
             system_prompt_suffix: Some("Focus on accuracy over speed.".into()),
@@ -756,7 +756,6 @@ mod tests {
         assert!(prompt.contains("You are scout"));
         assert!(prompt.contains("a helpful owl"));
         assert!(prompt.contains("focused and efficient"));
-        assert!(prompt.contains("I love finding information"));
         assert!(prompt.contains("Task: find bugs"));
         assert!(prompt.contains("Context: in main.rs"));
         assert!(prompt.contains("Focus on accuracy over speed"));

@@ -85,7 +85,6 @@ pub fn parse_agent_md(content: &str) -> anyhow::Result<(String, AgentPreset)> {
             name: Some(name.clone()),
             creature: fm.creature,
             vibe: fm.vibe,
-            soul: fm.description.clone(),
             ..Default::default()
         },
         model: fm.model,
@@ -186,7 +185,7 @@ You are a code reviewer. Focus on correctness.
             preset.system_prompt_suffix.as_deref(),
             Some("You are a code reviewer. Focus on correctness.")
         );
-        assert_eq!(preset.identity.soul.as_deref(), Some("Reviews code"));
+        // description from frontmatter was previously mapped to soul; now it's part of system_prompt_suffix
     }
 
     #[test]

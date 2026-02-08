@@ -23,6 +23,7 @@
 - [Sandbox](sandbox.md)
 - [Agent Presets](agent-presets.md)
 - [Session Tools](session-tools.md)
+- [Voice](voice.md)
 - [Browser Automation](browser-automation.md)
 - [Session State](session-state.md)
 - [Session Branching](session-branching.md)

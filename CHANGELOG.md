@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-02-08
+
+### Added
+
+- **Voice provider policy controls**: Added provider-list allowlists so config templates and runtime voice setup can explicitly limit shown/allowed TTS and STT providers.
+- **Typed voice provider metadata**: Expanded voice provider metadata and preference handling to use typed flows across gateway and UI paths.
+
+### Changed
+
+- **Reply medium preference handling**: Chat now prefers the same reply medium when possible and falls back to text when a medium cannot be preserved.
+
+### Fixed
+
+- **Chat UI reply badge visibility**: Assistant footer now reliably shows the selected reply medium badge.
+- **Voice UX polish**: Improved microphone timing behavior and preserved settings scroll state in voice configuration views.
+
+## [0.2.8] - 2026-02-07
+
 ### Changed
 
 - **Unified plugins and skills into a single system**: Plugins and skills were separate
@@ -16,9 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directory. The `/plugins` page has been removed — everything is accessible from the
   `/skills` page. A one-time startup migration automatically moves data from the old
   plugins manifest and directory into the new unified location.
+- **Default config template voice list narrowed**: New generated configs now include a
+  `[voice]` section with provider-list allowlists limited to ElevenLabs for TTS and
+  Mistral + ElevenLabs for STT.
 
 ### Fixed
 
+- **Update checker repository configuration**: The update checker now reads
+  `server.update_repository_url` from `moltis.toml`, defaults new configs to
+  `https://github.com/moltis-org/moltis`, and treats an omitted/commented value
+  as explicitly disabled.
 - **Mistral and other providers rejecting requests with HTTP 422**: Session metadata fields
   (`created_at`, `model`, `provider`, `inputTokens`, `outputTokens`) were leaking into
   provider API request bodies. Mistral's strict validation rejected the extra `created_at`
@@ -26,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `LlmProvider` trait — metadata can no longer leak because the type only contains
   LLM-relevant fields (`role`, `content`, `tool_calls`). Conversion from persisted JSON
   happens once at the gateway boundary via `values_to_chat_messages()`.
+- **Chat skill creation not persisting new skills**: Runtime tool filtering incorrectly
+  applied the union of discovered skill `allowed_tools` to all chat turns, which could
+  hide `create_skill`/`update_skill` and leave only a subset (for example `web_fetch`).
+  Chat runs now use configured tool policy for runtime filtering without globally
+  restricting tools based on discovered skill metadata.
 
 ### Added
 
@@ -71,6 +101,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   - **Multi-Agent UI**: Web components for agent spawning, session list/history
     views, and real-time WebSocket event integration
+
+- **Voice Provider Management UI**: Configure TTS and STT providers from Settings > Voice
+  - Auto-detection of API keys from environment variables and LLM provider configs
+  - Toggle switches to enable/disable providers without removing configuration
+  - Local binary detection for whisper.cpp, piper, and sherpa-onnx
+  - Server availability checks for Coqui TTS and Voxtral Local
+  - Setup instructions modal for local provider installation
+  - Shared Google Cloud API key between TTS and STT
+- **Voice provider UI allowlists**: Added `voice.tts.providers` and `voice.stt.providers`
+  config lists to control which TTS/STT providers are shown in the Settings UI.
+  Empty lists keep current behavior and show all providers.
+
+- **New TTS Providers**:
+  - Google Cloud Text-to-Speech (380+ voices, 50+ languages)
+  - Piper (fast local neural TTS, runs offline)
+  - Coqui TTS (high-quality neural TTS with voice cloning)
+
+- **New STT Providers**:
+  - ElevenLabs Scribe (90+ languages, word timestamps, speaker diarization)
+  - Mistral AI Voxtral (cloud-based, 13 languages)
+  - Voxtral Local via vLLM (self-hosted with OpenAI-compatible API)
 
 - **Browser Sandbox Mode**: Run browser in isolated Docker containers for security
   - Automatic container lifecycle management
@@ -135,6 +186,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Release packaging**: Derive release artifact versions from the Git tag (`vX.Y.Z`) in CI, and sync package metadata during release jobs to prevent filename/version drift.
 - **Versioning**: Bump workspace and snap baseline version to `0.2.0`.
 - **Onboarding auth flow**: Route first-run setup directly into `/onboarding` and remove the separate `/setup` web UI page.
+- **Startup observability**: Log each loaded context markdown (`CLAUDE.md` / `AGENTS.md` / `.claude/rules/*.md`), memory markdown (`MEMORY.md` and `memory/*.md`), and discovered `SKILL.md` to make startup/context loading easier to audit.
+- **Workspace root pathing**: Standardize workspace-scoped file discovery/loading on `moltis_config::data_dir()` instead of process cwd (affects BOOT.md, hook discovery, skill discovery, and compaction memory output paths).
+- **Soul storage**: Move agent personality text out of `moltis.toml` into workspace `SOUL.md`; identity APIs/UI still edit soul, but now persist it as a markdown file.
+- **Identity storage**: Persist agent identity fields (`name`, `emoji`, `creature`, `vibe`) to workspace `IDENTITY.md` using YAML frontmatter; settings UI continues to edit these fields through the same RPC/API.
+- **User profile storage**: Persist user profile fields (`name`, `timezone`) to workspace `USER.md` using YAML frontmatter; onboarding/settings continue to use the same API/UI while reading/writing the markdown file.
+- **Workspace markdown support**: Add `TOOLS.md` prompt injection from workspace root (`data_dir`), and keep startup injection sourced from `BOOT.md`.
+- **Heartbeat prompt precedence**: Support workspace `HEARTBEAT.md` as heartbeat prompt source with precedence `heartbeat.prompt` (config override) → `HEARTBEAT.md` → built-in default; log when config prompt overrides `HEARTBEAT.md`.
+- **Heartbeat UX**: Expose effective heartbeat prompt source (`config`, `HEARTBEAT.md`, or default) via `heartbeat.status` and display it in the Heartbeat settings UI.
+- **BOOT.md onboarding aid**: Seed a default workspace `BOOT.md` with in-file guidance describing startup injection behavior and recommended usage.
+- **Workspace context parity**: Treat workspace `TOOLS.md` as general context (not only policy) and add workspace `AGENTS.md` injection support from `data_dir`.
+- **Heartbeat token guard**: Skip heartbeat LLM turns when `HEARTBEAT.md` exists but is empty/comment-only and there is no explicit `heartbeat.prompt` override, reducing unnecessary token consumption.
 - **Exec approval policy wiring**: Gateway now initializes exec approval mode/security level/allowlist from `moltis.toml` (`tools.exec.*`) instead of always using hardcoded defaults.
 - **Runtime tool enforcement**: Chat runs now apply configured tool policy (`tools.policy`) and skill `allowed_tools` constraints when selecting callable tools.
 - **Skill trust lifecycle**: Installed marketplace skills/plugins now track a `trusted` state and must be trusted before they can be enabled; the skills UI now surfaces untrusted status and supports trust-before-enable.
@@ -383,6 +445,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `docs/design/multi-agent-ui.md` — UI design doc
 - Added `docs/src/agent-presets.md` — agent presets user guide
 - Added `docs/src/session-tools.md` — session tools user guide
+- Added voice.md with TTS/STT provider documentation and setup guides
 - Added mobile-pwa.md with PWA installation and push notification documentation
 - Updated CLAUDE.md with cargo feature policy (features enabled by default)
 - Updated browser-automation.md with browser detection, screenshot display, and

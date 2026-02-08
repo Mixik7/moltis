@@ -23,6 +23,7 @@ pub fn default_config_template(port: u16) -> String {
 [server]
 bind = "127.0.0.1"                # Address to bind to ("0.0.0.0" for all interfaces)
 port = {port}                           # Port number (auto-generated for this installation)
+update_repository_url = "https://github.com/moltis-org/moltis"    # GitHub repo used for update checks (comment out to disable)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTHENTICATION
@@ -433,6 +434,32 @@ enabled = true                    # Enable automatic failover
 fallback_models = []              # Ordered list of fallback models
                                   # Empty = auto-build chain from all registered models
                                   # Example: ["openai/gpt-4o", "anthropic/claude-3-haiku"]
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VOICE
+# ══════════════════════════════════════════════════════════════════════════════
+# Voice provider settings for text-to-speech (TTS) and speech-to-text (STT).
+# `providers` controls what appears in the Settings UI provider list.
+
+[voice.tts]
+enabled = false                   # Enable text-to-speech
+provider = "elevenlabs"           # Active TTS provider
+providers = ["elevenlabs"]        # UI allowlist (empty = show all TTS providers)
+
+[voice.stt]
+enabled = false                   # Enable speech-to-text
+provider = "mistral"              # Active STT provider
+providers = ["mistral", "elevenlabs"] # UI allowlist (empty = show all STT providers)
+
+# [voice.tts.elevenlabs]
+# api_key = "${{ELEVENLABS_API_KEY}}" # Or set ELEVENLABS_API_KEY env var
+# voice_id = "21m00Tcm4TlvDq8ikWAM"
+# model = "eleven_flash_v2_5"
+
+# [voice.stt.mistral]
+# api_key = "${{MISTRAL_API_KEY}}"    # Or set MISTRAL_API_KEY env var
+# model = "voxtral-mini-latest"
+# language = "en"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAILSCALE

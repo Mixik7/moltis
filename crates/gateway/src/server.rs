@@ -53,6 +53,7 @@ use crate::{
     state::GatewayState,
     update_check::{
         UPDATE_CHECK_INTERVAL, fetch_update_availability, github_latest_release_api_url,
+        resolve_repository_url,
     },
     ws::handle_connection,
 };
@@ -467,6 +468,17 @@ pub async fn start_gateway(
     // When local-llm feature is disabled, this variable is not needed since
     // the only usage is also feature-gated.
 
+    // Wire live voice services when the feature is enabled.
+    #[cfg(feature = "voice")]
+    {
+        use crate::voice::{LiveSttService, LiveTtsService, SttServiceConfig};
+
+        // Services read fresh config from disk on each operation,
+        // so we just need to create the instances here.
+        services.tts = Arc::new(LiveTtsService::new(moltis_voice::TtsConfig::default()));
+        services.stt = Arc::new(LiveSttService::new(SttServiceConfig::default()));
+    }
+
     if !registry.read().await.is_empty() {
         services = services.with_model(Arc::new(LiveModelService::new(Arc::clone(&registry))));
     }
@@ -518,7 +530,21 @@ pub async fn start_gateway(
 
     // Initialize data directory and SQLite database.
     let data_dir = data_dir.unwrap_or_else(moltis_config::data_dir);
-    std::fs::create_dir_all(&data_dir).ok();
+    std::fs::create_dir_all(&data_dir).unwrap_or_else(|e| {
+        panic!(
+            "failed to create data directory {}: {e}",
+            data_dir.display()
+        )
+    });
+
+    let config_dir =
+        moltis_config::config_dir().unwrap_or_else(|| std::path::PathBuf::from(".moltis"));
+    std::fs::create_dir_all(&config_dir).unwrap_or_else(|e| {
+        panic!(
+            "failed to create config directory {}: {e}",
+            config_dir.display()
+        )
+    });
 
     // Enable log persistence so entries survive restarts.
     if let Some(ref buf) = log_buffer {
@@ -695,6 +721,36 @@ pub async fn start_gateway(
             let state = st
                 .get()
                 .ok_or_else(|| anyhow::anyhow!("gateway not ready"))?;
+
+            // OpenClaw-style cost guard: if HEARTBEAT.md exists but is effectively
+            // empty (comments/blank scaffold) and there's no explicit
+            // heartbeat.prompt override, skip the LLM turn entirely.
+            let is_heartbeat_turn = matches!(
+                &req.session_target,
+                moltis_cron::types::SessionTarget::Named(name) if name == "heartbeat"
+            );
+            if is_heartbeat_turn {
+                let hb_cfg = state.heartbeat_config.read().await.clone();
+                let has_prompt_override = hb_cfg
+                    .prompt
+                    .as_deref()
+                    .is_some_and(|p| !p.trim().is_empty());
+                let heartbeat_path = moltis_config::heartbeat_path();
+                let heartbeat_file_exists = heartbeat_path.exists();
+                let heartbeat_md = moltis_config::load_heartbeat_md();
+                if heartbeat_file_exists && heartbeat_md.is_none() && !has_prompt_override {
+                    tracing::info!(
+                        path = %heartbeat_path.display(),
+                        "skipping heartbeat LLM turn: HEARTBEAT.md is empty"
+                    );
+                    return Ok(moltis_cron::service::AgentTurnResult {
+                        output: moltis_cron::heartbeat::HEARTBEAT_OK.to_string(),
+                        input_tokens: None,
+                        output_tokens: None,
+                    });
+                }
+            }
+
             let chat = state.chat().await;
             let session_key = match &req.session_target {
                 moltis_cron::types::SessionTarget::Named(name) => {
@@ -1061,6 +1117,7 @@ pub async fn start_gateway(
     services = services.with_session_store(Arc::clone(&session_store));
 
     // ── Hook discovery & registration ─────────────────────────────────────
+    seed_default_workspace_markdown_files();
     seed_example_skill();
     seed_example_hook();
     let persisted_disabled = crate::methods::load_disabled_hooks();
@@ -1610,9 +1667,16 @@ pub async fn start_gateway(
             moltis_tools::session_state::SessionStateTool::new(Arc::clone(&session_state_store)),
         ));
 
+        // Register built-in voice tools for explicit TTS/STT calls in agents.
+        tool_registry.register(Box::new(crate::voice_agent_tools::SpeakTool::new(
+            Arc::clone(&state.services.tts),
+        )));
+        tool_registry.register(Box::new(crate::voice_agent_tools::TranscribeTool::new(
+            Arc::clone(&state.services.stt),
+        )));
+
         // Register skill management tools for agent self-extension.
-        // Use data_dir so created skills land in ~/.moltis/skills/ (Personal
-        // source), which is always discovered regardless of the gateway's cwd.
+        // Use data_dir so created skills land in the configured workspace root.
         {
             tool_registry.register(Box::new(moltis_tools::skill_tools::CreateSkillTool::new(
                 data_dir.clone(),
@@ -1720,8 +1784,7 @@ pub async fn start_gateway(
     // Spawn skill file watcher for hot-reload.
     #[cfg(feature = "file-watcher")]
     {
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let search_paths = moltis_skills::discover::FsSkillDiscoverer::default_paths(&cwd);
+        let search_paths = moltis_skills::discover::FsSkillDiscoverer::default_paths();
         let watch_dirs: Vec<std::path::PathBuf> =
             search_paths.into_iter().map(|(p, _)| p).collect();
         if let Ok((_watcher, mut rx)) = moltis_skills::watcher::SkillWatcher::start(watch_dirs) {
@@ -1844,8 +1907,7 @@ pub async fn start_gateway(
     // Count enabled skills and repos for startup banner.
     let (skill_count, repo_count) = {
         use moltis_skills::discover::{FsSkillDiscoverer, SkillDiscoverer};
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let discoverer = FsSkillDiscoverer::new(FsSkillDiscoverer::default_paths(&cwd));
+        let discoverer = FsSkillDiscoverer::new(FsSkillDiscoverer::default_paths());
         let sc = discoverer.discover().await.map(|s| s.len()).unwrap_or(0);
         let rc = moltis_skills::manifest::ManifestStore::default_path()
             .ok()
@@ -2038,15 +2100,22 @@ pub async fn start_gateway(
 
     // Spawn periodic update check against latest GitHub release.
     let update_state = Arc::clone(&state);
+    let update_repository_url =
+        resolve_repository_url(config.server.update_repository_url.as_deref());
     tokio::spawn(async move {
-        let latest_release_api_url =
-            match github_latest_release_api_url(env!("CARGO_PKG_REPOSITORY")) {
+        let latest_release_api_url = match update_repository_url {
+            Some(repository_url) => match github_latest_release_api_url(&repository_url) {
                 Ok(url) => url,
                 Err(e) => {
                     warn!("update checker disabled: {e}");
                     return;
                 },
-            };
+            },
+            None => {
+                info!("update checker disabled: server.update_repository_url is not configured");
+                return;
+            },
+        };
 
         let client = match reqwest::Client::builder()
             .user_agent(format!("moltis-gateway/{}", update_state.version))
@@ -2315,14 +2384,32 @@ pub async fn start_gateway(
     // Use a fixed ID so run history persists across restarts.
     {
         use moltis_cron::{
-            heartbeat::{DEFAULT_INTERVAL_MS, parse_interval_ms, resolve_heartbeat_prompt},
+            heartbeat::{
+                DEFAULT_INTERVAL_MS, HeartbeatPromptSource, parse_interval_ms,
+                resolve_heartbeat_prompt,
+            },
             types::{CronJobCreate, CronJobPatch, CronPayload, CronSchedule, SessionTarget},
         };
         const HEARTBEAT_JOB_ID: &str = "__heartbeat__";
 
         let hb = &config.heartbeat;
         let interval_ms = parse_interval_ms(&hb.every).unwrap_or(DEFAULT_INTERVAL_MS);
-        let prompt = resolve_heartbeat_prompt(hb.prompt.as_deref());
+        let heartbeat_md = moltis_config::load_heartbeat_md();
+        let (prompt, prompt_source) =
+            resolve_heartbeat_prompt(hb.prompt.as_deref(), heartbeat_md.as_deref());
+        if prompt_source == HeartbeatPromptSource::HeartbeatMd {
+            tracing::info!("loaded heartbeat prompt from HEARTBEAT.md");
+        }
+        if hb.prompt.as_deref().is_some_and(|p| !p.trim().is_empty())
+            && heartbeat_md
+                .as_deref()
+                .is_some_and(|p| !p.trim().is_empty())
+            && prompt_source == HeartbeatPromptSource::Config
+        {
+            tracing::warn!(
+                "heartbeat prompt source conflict: config heartbeat.prompt overrides HEARTBEAT.md"
+            );
+        }
 
         // Check if heartbeat job already exists.
         let existing = cron_service.list().await;
@@ -2610,6 +2697,7 @@ struct GonData {
     cron_status: moltis_cron::types::CronStatus,
     heartbeat_config: moltis_config::schema::HeartbeatConfig,
     heartbeat_runs: Vec<moltis_cron::types::CronRunRecord>,
+    voice_enabled: bool,
     /// Non-main git branch name, if running from a git checkout on a
     /// non-default branch. `None` when on `main`/`master` or outside a repo.
     git_branch: Option<String>,
@@ -2744,6 +2832,7 @@ async fn build_gon_data(gw: &GatewayState) -> GonData {
         cron_status,
         heartbeat_config,
         heartbeat_runs,
+        voice_enabled: cfg!(feature = "voice"),
         git_branch: detect_git_branch(),
         mem: collect_mem_snapshot(),
         deploy_platform: gw.deploy_platform.clone(),
@@ -3121,11 +3210,8 @@ async fn api_skills_handler(State(state): State<AppState>) -> impl IntoResponse 
                 data_dir.join("skills"),
                 moltis_skills::types::SkillSource::Personal,
             ),
-            // Project-local skills if gateway was started from a project directory.
             (
-                std::env::current_dir()
-                    .unwrap_or_default()
-                    .join(".moltis/skills"),
+                data_dir.join(".moltis/skills"),
                 moltis_skills::types::SkillSource::Project,
             ),
         ];
@@ -3683,6 +3769,24 @@ fn seed_example_skill() {
     }
 }
 
+/// Seed default workspace markdown files in workspace root on first run.
+fn seed_default_workspace_markdown_files() {
+    let data_dir = moltis_config::data_dir();
+    seed_file_if_missing(data_dir.join("BOOT.md"), DEFAULT_BOOT_MD);
+    seed_file_if_missing(data_dir.join("AGENTS.md"), DEFAULT_WORKSPACE_AGENTS_MD);
+    seed_file_if_missing(data_dir.join("TOOLS.md"), DEFAULT_TOOLS_MD);
+    seed_file_if_missing(data_dir.join("HEARTBEAT.md"), DEFAULT_HEARTBEAT_MD);
+}
+
+fn seed_file_if_missing(path: std::path::PathBuf, content: &str) {
+    if path.exists() {
+        return;
+    }
+    if let Err(e) = std::fs::write(&path, content) {
+        tracing::debug!(path = %path.display(), "could not write default markdown file: {e}");
+    }
+}
+
 /// Content for the skeleton example hook.
 const EXAMPLE_HOOK_MD: &str = r#"+++
 name = "example"
@@ -3791,6 +3895,58 @@ Use this as a starting point for your own skills.
 - Document required tools and expected inputs
 "#;
 
+/// Default BOOT.md content seeded into workspace root.
+const DEFAULT_BOOT_MD: &str = r#"<!--
+BOOT.md is optional startup context.
+
+How Moltis uses this file:
+- Read on every GatewayStart by the built-in boot-md hook.
+- Missing/empty/comment-only file = no startup injection.
+- Non-empty content = injected as startup user message context.
+
+Recommended usage:
+- Keep it short and explicit.
+- Use for startup checks/reminders, not onboarding identity setup.
+-->"#;
+
+/// Default workspace AGENTS.md content seeded into workspace root.
+const DEFAULT_WORKSPACE_AGENTS_MD: &str = r#"<!--
+Workspace AGENTS.md contains global instructions for this workspace.
+
+How Moltis uses this file:
+- Loaded from data_dir/AGENTS.md when present.
+- Injected as workspace context in the system prompt.
+- Separate from project AGENTS.md/CLAUDE.md discovery.
+
+Use this for cross-project rules that should apply everywhere in this workspace.
+-->"#;
+
+/// Default TOOLS.md content seeded into workspace root.
+const DEFAULT_TOOLS_MD: &str = r#"<!--
+TOOLS.md contains workspace-specific tool notes and constraints.
+
+How Moltis uses this file:
+- Loaded from data_dir/TOOLS.md when present.
+- Injected as workspace context in the system prompt.
+
+Use this for local setup details (hosts, aliases, device names) and
+tool behavior constraints (safe defaults, forbidden actions, etc.).
+-->"#;
+
+/// Default HEARTBEAT.md content seeded into workspace root.
+const DEFAULT_HEARTBEAT_MD: &str = r#"<!--
+HEARTBEAT.md is an optional heartbeat prompt source.
+
+Prompt precedence:
+1) heartbeat.prompt from config
+2) HEARTBEAT.md
+3) built-in default prompt
+
+Cost guard:
+- If HEARTBEAT.md exists but is empty/comment-only and there is no explicit
+  heartbeat.prompt override, Moltis skips heartbeat LLM turns to avoid token use.
+-->"#;
+
 /// Discover hooks from the filesystem, check eligibility, and build a
 /// [`HookRegistry`] plus a `Vec<DiscoveredHookInfo>` for the web UI.
 ///
@@ -3813,8 +3969,7 @@ pub(crate) async fn discover_and_build_hooks(
         shell_hook::ShellHookHandler,
     };
 
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let discoverer = FsHookDiscoverer::new(FsHookDiscoverer::default_paths(&cwd));
+    let discoverer = FsHookDiscoverer::new(FsHookDiscoverer::default_paths());
     let discovered = discoverer.discover().await.unwrap_or_default();
 
     let mut registry = moltis_common::hooks::HookRegistry::new();
@@ -3884,11 +4039,10 @@ pub(crate) async fn discover_and_build_hooks(
 
     // ── Built-in hooks (compiled Rust, always active) ──────────────────
     {
-        let cwd = std::env::current_dir().unwrap_or_default();
         let data = moltis_config::data_dir();
 
         // boot-md: inject BOOT.md content on GatewayStart.
-        let boot = BootMdHook::new(cwd.clone());
+        let boot = BootMdHook::new(data.clone());
         registry.register(Arc::new(boot));
 
         // command-logger: append JSONL entries for every slash command.
