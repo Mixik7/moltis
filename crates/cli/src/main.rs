@@ -8,6 +8,7 @@ mod sandbox_commands;
 mod tailscale_commands;
 
 use {
+    anyhow::anyhow,
     clap::{Parser, Subcommand},
     moltis_gateway::logs::{LogBroadcastLayer, LogBuffer},
     tracing::info,
@@ -306,6 +307,25 @@ async fn main() -> anyhow::Result<()> {
         moltis_config::set_data_dir(dir.clone());
     }
 
+    // Ensure config/data directories exist for every command path. This is a
+    // hard requirement for startup; fail fast if directory initialization fails.
+    let config_dir =
+        moltis_config::config_dir().ok_or_else(|| anyhow!("unable to resolve config directory"))?;
+    std::fs::create_dir_all(&config_dir).unwrap_or_else(|e| {
+        panic!(
+            "failed to create config directory {}: {e}",
+            config_dir.display()
+        )
+    });
+
+    let data_dir = moltis_config::data_dir();
+    std::fs::create_dir_all(&data_dir).unwrap_or_else(|e| {
+        panic!(
+            "failed to create data directory {}: {e}",
+            data_dir.display()
+        )
+    });
+
     match cli.command {
         // Default: start gateway when no subcommand is provided
         None | Some(Commands::Gateway) => {
@@ -374,8 +394,7 @@ async fn handle_skills(action: SkillAction) -> anyhow::Result<()> {
         registry::{InMemoryRegistry, SkillRegistry},
     };
 
-    let cwd = std::env::current_dir()?;
-    let search_paths = FsSkillDiscoverer::default_paths(&cwd);
+    let search_paths = FsSkillDiscoverer::default_paths();
     let discoverer = FsSkillDiscoverer::new(search_paths);
 
     match action {

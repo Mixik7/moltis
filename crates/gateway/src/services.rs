@@ -653,8 +653,7 @@ impl SkillsService for NoopSkillsService {
             discover::{FsSkillDiscoverer, SkillDiscoverer},
             requirements::check_requirements,
         };
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let search_paths = FsSkillDiscoverer::default_paths(&cwd);
+        let search_paths = FsSkillDiscoverer::default_paths();
         let discoverer = FsSkillDiscoverer::new(search_paths);
         let skills = discoverer.discover().await.map_err(|e| e.to_string())?;
         let items: Vec<_> = skills
@@ -1173,8 +1172,7 @@ impl SkillsService for NoopSkillsService {
             .unwrap_or(false);
 
         // Discover the skill to get its requirements
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let search_paths = FsSkillDiscoverer::default_paths(&cwd);
+        let search_paths = FsSkillDiscoverer::default_paths();
         let discoverer = FsSkillDiscoverer::new(search_paths);
         let skills = discoverer.discover().await.map_err(|e| e.to_string())?;
 
@@ -1380,9 +1378,7 @@ fn delete_discovered_skill(source_type: &str, params: &Value) -> ServiceResult {
     let search_dir = if source_type == "personal" {
         moltis_config::data_dir().join("skills")
     } else {
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join(".moltis/skills")
+        moltis_config::data_dir().join(".moltis/skills")
     };
 
     let skill_dir = search_dir.join(skill_name);
@@ -1412,9 +1408,7 @@ fn skill_detail_discovered(source_type: &str, skill_name: &str) -> ServiceResult
     let search_dir = if source_type == "personal" {
         moltis_config::data_dir().join("skills")
     } else {
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join(".moltis/skills")
+        moltis_config::data_dir().join(".moltis/skills")
     };
 
     let skill_dir = search_dir.join(skill_name);
@@ -1978,6 +1972,7 @@ pub struct GatewayServices {
     pub cron: Arc<dyn CronService>,
     pub chat: Arc<dyn ChatService>,
     pub tts: Arc<dyn TtsService>,
+    pub stt: Arc<dyn crate::voice::SttService>,
     pub skills: Arc<dyn SkillsService>,
     pub mcp: Arc<dyn McpService>,
     pub browser: Arc<dyn BrowserService>,
@@ -2040,6 +2035,7 @@ impl GatewayServices {
             cron: Arc::new(NoopCronService),
             chat: Arc::new(NoopChatService),
             tts: Arc::new(NoopTtsService),
+            stt: Arc::new(crate::voice::NoopSttService),
             skills: Arc::new(NoopSkillsService),
             mcp: Arc::new(NoopMcpService),
             browser: Arc::new(NoopBrowserService),
@@ -2085,6 +2081,16 @@ impl GatewayServices {
 
     pub fn with_session_store(mut self, store: Arc<moltis_sessions::store::SessionStore>) -> Self {
         self.session_store = Some(store);
+        self
+    }
+
+    pub fn with_tts(mut self, tts: Arc<dyn TtsService>) -> Self {
+        self.tts = tts;
+        self
+    }
+
+    pub fn with_stt(mut self, stt: Arc<dyn crate::voice::SttService>) -> Self {
+        self.stt = stt;
         self
     }
 }

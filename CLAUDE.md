@@ -123,6 +123,20 @@ Benefits of type-based matching:
 Only convert to strings at boundaries: serialization, database storage,
 logging, or display. Keep the core logic type-safe.
 
+### Type conversions
+
+- Avoid manual one-off conversion functions and ad-hoc `match` blocks sprinkled
+  through business logic when converting between types.
+- Prefer trait-based conversions (`From` / `Into` / `TryFrom` / `TryInto`) or a
+  dedicated local conversion trait when orphan rules prevent a direct impl.
+- Always prefer typed structs/enums and serde (de)serialization over raw
+  `serde_json::Value` access in production code.
+- Treat untyped JSON maps as test-only scaffolding unless there is a strict
+  boundary requirement (external RPC/tool contract, dynamic schema).
+- If trait-based conversion or typed serde mapping is truly not feasible for a
+  specific case, stop and ask for user approval before adding a manual
+  conversion path.
+
 ### Concurrency
 
 - Always prefer streaming over non-streaming API calls when possible.
@@ -134,6 +148,10 @@ logging, or display. Keep the core logic type-safe.
   result.
 - Never use `block_on` or any blocking call inside an async context (see
   "Async all the way down" below).
+- **Code smell (forbidden): `Mutex<()>` / `Arc<Mutex<()>>` as a lock token.**
+  The mutex must guard the actual state/resource being synchronized (e.g. a
+  `struct` containing the config/file path/cache), not unit `()` sentinels.
+  This keeps locking intent explicit and avoids lock/data drift over time.
 
 ### Error handling
 
@@ -431,6 +449,28 @@ behind a cargo feature flag (e.g. `#[cfg(feature = "skills")]`).
 Examples: `/api/skills`, `/api/plugins`, `/api/channels`, with RPC methods
 `skills.list`, `plugins.install`, `channels.status`, etc. Never merge
 multiple features into a single endpoint.
+
+## Channel Message Handling
+
+When processing inbound messages from channels (Telegram, etc.), **always
+respond to approved senders**. No message should be left without a reply,
+even if an error occurs:
+
+- If the LLM response fails, send an error message back to the channel
+- If transcription fails, send a fallback message and continue
+- If attachment download fails, acknowledge the issue
+- If the message type is unhandled, respond with a helpful message like
+  "Sorry, I can't understand that message type. Check logs for details."
+
+This ensures users always know their message was received and processed
+(or why it wasn't). Silent failures create confusion and make debugging
+harder.
+
+**Access control**: Only approved senders should receive responses. Messages
+from non-allowlisted users are handled by the OTP flow or silently ignored
+per the configured policy. The "always respond" rule applies only after
+access is granted.
+
 ## Authentication Architecture
 
 The gateway supports password and passkey (WebAuthn) authentication, managed
@@ -634,6 +674,10 @@ Moltis uses two directories, **never** the current working directory:
 - **Never use `std::env::current_dir()`** to resolve paths for persistent
   storage (databases, memory files, config). Always use `data_dir()` or
   `config_dir()`. Writing to cwd leaks files into the user's repo.
+- **Workspace root is `data_dir()`**. Any workspace-scoped markdown files
+  (for example `BOOT.md`, `HEARTBEAT.md`, `TOOLS.md`, `IDENTITY.md`,
+  `USER.md`, `SOUL.md`, `MEMORY.md`, `memory/*.md`, `.moltis/*`) must be
+  resolved relative to `moltis_config::data_dir()`, never cwd.
 - When a function needs a storage path, pass `data_dir` explicitly or call
   `moltis_config::data_dir()`. Don't assume the process was started from a
   specific directory.
@@ -775,11 +819,22 @@ integrate them together so nothing is lost.
 to check fmt, lint, and tests locally and publish commit statuses to the PR.
 Running the script without a PR number is useless — it skips status publishing.
 
+**PR description quality:** Every pull request must include a clear, reviewer-friendly
+description with at least these sections:
+- `## Summary` (what changed and why)
+- `## Validation` using checkboxes (not plain bullets), split into:
+  - `### Completed` — checked items for commands that passed
+  - `### Remaining` — unchecked items for follow-up work (or a single checked
+    `- [x] None` if nothing remains)
+  Include exact commands (fmt/lint/tests) in the checkbox items.
+- `## Manual QA` (UI/manual checks performed, or explicitly say `None`)
+
+Do not leave PR bodies as a raw commit dump. Keep them concise and actionable.
+
 **PR descriptions must include test TODOs.** Every pull request description
-must include a dedicated section with checklist-style testing steps for the
-current PR (manual and/or automated), so reviewers can validate behavior
-without guessing. Keep the steps concrete (commands to run, UI paths to click,
-and expected results).
+must include a dedicated checklist-style testing section (manual and/or
+automated) so reviewers can validate behavior without guessing. Keep the steps
+concrete (commands to run, UI paths to click, and expected results).
 
 ## Code Quality Checklist
 
@@ -788,8 +843,8 @@ and expected results).
 - [ ] **No secrets or private tokens are included** (CRITICAL)
 - [ ] `taplo fmt` (when TOML files were modified)
 - [ ] `biome check --write` (when JS files were modified; CI runs `biome ci`)
-- [ ] Code is formatted (`just format-check` passes)
-- [ ] Code passes clippy linting (`just lint` passes)
+- [ ] Code is formatted (`cargo +nightly fmt --all` / `just format-check` passes)
+- [ ] Code passes clippy linting (`cargo +nightly clippy --workspace --all-targets --all-features` / `just lint` passes)
 - [ ] All tests pass (`cargo test`)
 - [ ] Commit message follows conventional commit format
 - [ ] Changes are logically grouped in the commit
