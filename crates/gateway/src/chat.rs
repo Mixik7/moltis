@@ -23,11 +23,13 @@ use moltis_config::MessageQueueMode;
 
 use {
     moltis_agents::{
-        AgentRunError, ChatMessage,
+        AgentRunError, ChatMessage, ContentPart, UserContent,
         model::{StreamEvent, values_to_chat_messages},
+        multimodal::parse_data_uri,
         prompt::{
             PromptHostRuntimeContext, PromptRuntimeContext, PromptSandboxRuntimeContext,
-            build_system_prompt_minimal_runtime, build_system_prompt_with_session_runtime,
+            VOICE_REPLY_SUFFIX, build_system_prompt_minimal_runtime,
+            build_system_prompt_with_session_runtime,
         },
         providers::{ProviderRegistry, raw_model_id},
         runner::{RunnerEvent, run_agent_loop_streaming},
@@ -50,6 +52,60 @@ use crate::{
 
 #[cfg(feature = "metrics")]
 use moltis_metrics::{counter, histogram, labels, llm as llm_metrics};
+
+/// Convert session-crate `MessageContent` to agents-crate `UserContent`.
+///
+/// The two types have different image representations:
+/// - `ContentBlock::ImageUrl` stores a data URI string
+/// - `ContentPart::Image` stores separated `media_type` + `data` fields
+fn to_user_content(mc: &MessageContent) -> UserContent {
+    match mc {
+        MessageContent::Text(text) => UserContent::Text(text.clone()),
+        MessageContent::Multimodal(blocks) => {
+            let parts: Vec<ContentPart> = blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::Text { text } => Some(ContentPart::Text(text.clone())),
+                    ContentBlock::ImageUrl { image_url } => match parse_data_uri(&image_url.url) {
+                        Some((media_type, data)) => {
+                            debug!(
+                                media_type,
+                                data_len = data.len(),
+                                "to_user_content: parsed image from data URI"
+                            );
+                            Some(ContentPart::Image {
+                                media_type: media_type.to_string(),
+                                data: data.to_string(),
+                            })
+                        },
+                        None => {
+                            warn!(
+                                url_prefix = &image_url.url[..image_url.url.len().min(80)],
+                                "to_user_content: failed to parse data URI, dropping image"
+                            );
+                            None
+                        },
+                    },
+                })
+                .collect();
+            let text_count = parts
+                .iter()
+                .filter(|p| matches!(p, ContentPart::Text(_)))
+                .count();
+            let image_count = parts
+                .iter()
+                .filter(|p| matches!(p, ContentPart::Image { .. }))
+                .count();
+            debug!(
+                text_count,
+                image_count,
+                total_blocks = blocks.len(),
+                "to_user_content: converted multimodal content"
+            );
+            UserContent::Multimodal(parts)
+        },
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -1282,6 +1338,46 @@ impl ModelService for LiveModelService {
 
         Ok(summary)
     }
+
+    async fn test(&self, params: Value) -> ServiceResult {
+        let model_id = params
+            .get("modelId")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "missing 'modelId' parameter".to_string())?;
+
+        let provider = {
+            let reg = self.providers.read().await;
+            reg.get(model_id)
+                .ok_or_else(|| format!("unknown model: {model_id}"))?
+        };
+
+        let probe = [ChatMessage::user("ping")];
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            provider.complete(&probe, &[]),
+        )
+        .await;
+
+        match result {
+            Ok(Ok(_)) => Ok(serde_json::json!({
+                "ok": true,
+                "modelId": model_id,
+            })),
+            Ok(Err(err)) => {
+                let error_text = err.to_string();
+                let error_obj =
+                    crate::chat_error::parse_chat_error(&error_text, Some(provider.name()));
+                let detail = error_obj
+                    .get("detail")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&error_text)
+                    .to_string();
+
+                Err(detail)
+            },
+            Err(_) => Err("Connection timed out after 20 seconds".to_string()),
+        }
+    }
 }
 
 // ── LiveChatService ─────────────────────────────────────────────────────────
@@ -1695,6 +1791,10 @@ impl ChatService for LiveChatService {
         // Generate run_id early so we can link the user message to its agent run.
         let run_id = uuid::Uuid::new_v4().to_string();
 
+        // Convert session-crate content to agents-crate content for the LLM.
+        // Must happen before `message_content` is moved into `user_msg`.
+        let user_content = to_user_content(&message_content);
+
         // Build the user message for later persistence (deferred until we
         // know the message won't be queued — avoids double-persist when a
         // queued message is replayed via send()).
@@ -1998,7 +2098,7 @@ impl ChatService for LiveChatService {
                         &run_id_clone,
                         provider,
                         &model_id,
-                        &text,
+                        &user_content,
                         &provider_name,
                         &history,
                         &session_key_clone,
@@ -2019,7 +2119,7 @@ impl ChatService for LiveChatService {
                         provider,
                         &model_id,
                         &tool_registry,
-                        &text,
+                        &user_content,
                         &provider_name,
                         &history,
                         &session_key_clone,
@@ -2269,6 +2369,8 @@ impl ChatService for LiveChatService {
             .await;
         }
 
+        // send_sync is text-only (used by API calls and channels).
+        let user_content = UserContent::text(&text);
         let result = if stream_only {
             run_streaming(
                 &state,
@@ -2276,7 +2378,7 @@ impl ChatService for LiveChatService {
                 &run_id,
                 provider,
                 &model_id,
-                &text,
+                &user_content,
                 &provider_name,
                 &history,
                 &session_key,
@@ -2297,7 +2399,7 @@ impl ChatService for LiveChatService {
                 provider,
                 &model_id,
                 &tool_registry,
-                &text,
+                &user_content,
                 &provider_name,
                 &history,
                 &session_key,
@@ -3264,7 +3366,7 @@ async fn run_with_tools(
     provider: Arc<dyn moltis_agents::model::LlmProvider>,
     model_id: &str,
     tool_registry: &Arc<RwLock<ToolRegistry>>,
-    text: &str,
+    user_content: &UserContent,
     provider_name: &str,
     history_raw: &[serde_json::Value],
     session_key: &str,
@@ -3319,6 +3421,13 @@ async fn run_with_tools(
             persona.tools_text.as_deref(),
             runtime_context,
         )
+    };
+
+    // Layer 1: instruct the LLM to write speech-friendly output when voice is active.
+    let system_prompt = if desired_reply_medium == ReplyMedium::Voice {
+        format!("{system_prompt}{VOICE_REPLY_SUFFIX}")
+    } else {
+        system_prompt
     };
 
     // Determine if this session is sandboxed (for browser tool execution mode)
@@ -3590,6 +3699,12 @@ async fn run_with_tools(
                     "toolCallsMade": tool_calls_made,
                     "seq": seq,
                 }),
+                RunnerEvent::RetryingAfterError(_) => serde_json::json!({
+                    "runId": run_id,
+                    "sessionKey": sk,
+                    "state": "retrying",
+                    "seq": seq,
+                }),
             };
             broadcast(&state, "chat", payload, BroadcastOpts::default()).await;
         });
@@ -3622,7 +3737,7 @@ async fn run_with_tools(
         provider,
         &filtered_registry,
         &system_prompt,
-        text,
+        user_content,
         Some(&on_event),
         hist,
         Some(tool_context.clone()),
@@ -3685,7 +3800,7 @@ async fn run_with_tools(
                         provider_ref.clone(),
                         &filtered_registry,
                         &system_prompt,
-                        text,
+                        user_content,
                         Some(&on_event),
                         retry_hist,
                         Some(tool_context),
@@ -3900,7 +4015,7 @@ async fn run_streaming(
     run_id: &str,
     provider: Arc<dyn moltis_agents::model::LlmProvider>,
     model_id: &str,
-    text: &str,
+    user_content: &UserContent,
     provider_name: &str,
     history_raw: &[serde_json::Value],
     session_key: &str,
@@ -3924,11 +4039,20 @@ async fn run_streaming(
         runtime_context,
     );
 
+    // Layer 1: instruct the LLM to write speech-friendly output when voice is active.
+    let system_prompt = if desired_reply_medium == ReplyMedium::Voice {
+        format!("{system_prompt}{VOICE_REPLY_SUFFIX}")
+    } else {
+        system_prompt
+    };
+
     let mut messages: Vec<ChatMessage> = Vec::new();
     messages.push(ChatMessage::system(system_prompt));
     // Convert persisted JSON history to typed ChatMessages for the LLM provider.
     messages.extend(values_to_chat_messages(history_raw));
-    messages.push(ChatMessage::user(text));
+    messages.push(ChatMessage::User {
+        content: user_content.clone(),
+    });
 
     #[cfg(feature = "metrics")]
     let stream_start = Instant::now();
@@ -4176,6 +4300,8 @@ async fn deliver_channel_replies(
         Some(o) => o,
         None => return,
     };
+    // Drain buffered status log entries to build a logbook suffix.
+    let status_log = state.drain_channel_status_log(session_key).await;
     deliver_channel_replies_to_targets(
         outbound,
         targets,
@@ -4183,8 +4309,28 @@ async fn deliver_channel_replies(
         text,
         Arc::clone(state),
         desired_reply_medium,
+        status_log,
     )
     .await;
+}
+
+/// Format buffered status log entries into a Telegram expandable blockquote HTML.
+/// Returns an empty string if there are no entries.
+fn format_logbook_html(entries: &[String]) -> String {
+    if entries.is_empty() {
+        return String::new();
+    }
+    let mut html = String::from("<blockquote expandable>\n\u{1f4cb} <b>Activity log</b>\n");
+    for entry in entries {
+        // Escape HTML entities in the entry text.
+        let escaped = entry
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        html.push_str(&format!("\u{2022} {escaped}\n"));
+    }
+    html.push_str("</blockquote>");
+    html
 }
 
 async fn deliver_channel_replies_to_targets(
@@ -4194,15 +4340,18 @@ async fn deliver_channel_replies_to_targets(
     text: &str,
     state: Arc<GatewayState>,
     desired_reply_medium: ReplyMedium,
+    status_log: Vec<String>,
 ) {
     let session_key = session_key.to_string();
     let text = text.to_string();
+    let logbook_html = format_logbook_html(&status_log);
     let mut tasks = Vec::with_capacity(targets.len());
     for target in targets {
         let outbound = Arc::clone(&outbound);
         let state = Arc::clone(&state);
         let session_key = session_key.clone();
         let text = text.clone();
+        let logbook_html = logbook_html.clone();
         tasks.push(tokio::spawn(async move {
             let tts_payload = match desired_reply_medium {
                 ReplyMedium::Voice => build_tts_payload(&state, &session_key, &target, &text).await,
@@ -4225,10 +4374,22 @@ async fn deliver_channel_replies_to_targets(
                             }
                         },
                         None => {
-                            if let Err(e) = outbound
-                                .send_text(&target.account_id, &target.chat_id, &text, reply_to)
-                                .await
-                            {
+                            let result = if logbook_html.is_empty() {
+                                outbound
+                                    .send_text(&target.account_id, &target.chat_id, &text, reply_to)
+                                    .await
+                            } else {
+                                outbound
+                                    .send_text_with_suffix(
+                                        &target.account_id,
+                                        &target.chat_id,
+                                        &text,
+                                        &logbook_html,
+                                        reply_to,
+                                    )
+                                    .await
+                            };
+                            if let Err(e) = result {
                                 warn!(
                                     account_id = target.account_id,
                                     chat_id = target.chat_id,
@@ -4292,6 +4453,9 @@ async fn generate_tts_audio(
         return None;
     }
 
+    // Layer 2: strip markdown/URLs the LLM may have included despite the prompt.
+    let text = moltis_voice::tts::sanitize_text_for_tts(text);
+
     let session_override = {
         state
             .inner
@@ -4303,7 +4467,7 @@ async fn generate_tts_audio(
     };
 
     let request = TtsConvertRequest {
-        text,
+        text: &text,
         format: "ogg",
         provider: session_override.as_ref().and_then(|o| o.provider.clone()),
         voice_id: session_override.as_ref().and_then(|o| o.voice_id.clone()),
@@ -4337,6 +4501,9 @@ async fn build_tts_payload(
         return None;
     }
 
+    // Layer 2: strip markdown/URLs the LLM may have included despite the prompt.
+    let text = moltis_voice::tts::sanitize_text_for_tts(text);
+
     let channel_key = format!("{}:{}", target.channel_type.as_str(), target.account_id);
     let (channel_override, session_override) = {
         let inner = state.inner.read().await;
@@ -4348,7 +4515,7 @@ async fn build_tts_payload(
     let resolved = channel_override.or(session_override);
 
     let request = TtsConvertRequest {
-        text,
+        text: &text,
         format: "ogg",
         provider: resolved.as_ref().and_then(|o| o.provider.clone()),
         voice_id: resolved.as_ref().and_then(|o| o.voice_id.clone()),
@@ -4379,8 +4546,9 @@ async fn build_tts_payload(
     })
 }
 
-/// Send a tool execution status to all pending channel targets for a session.
-/// Uses `peek_channel_replies` so targets remain for the final text response.
+/// Buffer a tool execution status into the channel status log for a session.
+/// The buffered entries are appended as a collapsible logbook when the final
+/// response is delivered, instead of being sent as separate messages.
 async fn send_tool_status_to_channels(
     state: &Arc<GatewayState>,
     session_key: &str,
@@ -4392,54 +4560,9 @@ async fn send_tool_status_to_channels(
         return;
     }
 
-    let outbound = match state.services.channel_outbound_arc() {
-        Some(o) => o,
-        None => return,
-    };
-
-    // Format a concise tool execution message
+    // Buffer the status message for the logbook
     let message = format_tool_status_message(tool_name, arguments);
-
-    for target in targets {
-        let outbound = Arc::clone(&outbound);
-        let message = message.clone();
-        tokio::spawn(async move {
-            // Send as a silent message to avoid notification spam
-            if let Err(e) = outbound
-                .send_text_silent(
-                    &target.account_id,
-                    &target.chat_id,
-                    &message,
-                    target.message_id.as_deref(),
-                )
-                .await
-            {
-                debug!(
-                    account_id = target.account_id,
-                    chat_id = target.chat_id,
-                    "failed to send tool status to channel: {e}"
-                );
-            } else {
-                // Re-send typing indicator after status message
-                // (sending a message clears the typing indicator in Telegram)
-                debug!(
-                    account_id = target.account_id,
-                    chat_id = target.chat_id,
-                    "sent tool status, re-sending typing indicator"
-                );
-                if let Err(e) = outbound
-                    .send_typing(&target.account_id, &target.chat_id)
-                    .await
-                {
-                    debug!(
-                        account_id = target.account_id,
-                        chat_id = target.chat_id,
-                        "failed to re-send typing after tool status: {e}"
-                    );
-                }
-            }
-        });
-    }
+    state.push_channel_status_log(session_key, message).await;
 }
 
 /// Format a human-readable tool execution message.
@@ -4737,6 +4860,7 @@ mod tests {
             "hello",
             state,
             ReplyMedium::Text,
+            Vec::new(),
         )
         .await;
 
@@ -5325,6 +5449,66 @@ mod tests {
         assert_eq!(next_probe_rate_limit_backoff_ms(Some(30_000)), 30_000);
     }
 
+    #[tokio::test]
+    async fn model_test_rejects_missing_model_id() {
+        let service = LiveModelService::new(
+            Arc::new(RwLock::new(ProviderRegistry::from_env_with_config(
+                &moltis_config::schema::ProvidersConfig::default(),
+            ))),
+            Arc::new(RwLock::new(DisabledModelsStore::default())),
+            vec![],
+        );
+        let result = service.test(serde_json::json!({})).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("missing 'modelId'"));
+    }
+
+    #[tokio::test]
+    async fn model_test_rejects_unknown_model() {
+        let service = LiveModelService::new(
+            Arc::new(RwLock::new(ProviderRegistry::from_env_with_config(
+                &moltis_config::schema::ProvidersConfig::default(),
+            ))),
+            Arc::new(RwLock::new(DisabledModelsStore::default())),
+            vec![],
+        );
+        let result = service
+            .test(serde_json::json!({"modelId": "nonexistent::model-xyz"}))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unknown model"));
+    }
+
+    #[tokio::test]
+    async fn model_test_returns_error_when_provider_fails() {
+        let mut registry = ProviderRegistry::from_env_with_config(
+            &moltis_config::schema::ProvidersConfig::default(),
+        );
+        // StaticProvider's complete() returns an error ("not implemented for test")
+        registry.register(
+            moltis_agents::providers::ModelInfo {
+                id: "test-provider::test-model".to_string(),
+                provider: "test-provider".to_string(),
+                display_name: "Test Model".to_string(),
+            },
+            Arc::new(StaticProvider {
+                name: "test-provider".to_string(),
+                id: "test-provider::test-model".to_string(),
+            }),
+        );
+
+        let service = LiveModelService::new(
+            Arc::new(RwLock::new(registry)),
+            Arc::new(RwLock::new(DisabledModelsStore::default())),
+            vec![],
+        );
+        let result = service
+            .test(serde_json::json!({"modelId": "test-provider::test-model"}))
+            .await;
+        // StaticProvider.complete() returns Err, so test should return an error.
+        assert!(result.is_err());
+    }
+
     #[test]
     fn probe_parallel_per_provider_defaults_and_clamps() {
         assert_eq!(probe_max_parallel_per_provider(&serde_json::json!({})), 1);
@@ -5336,5 +5520,125 @@ mod tests {
             probe_max_parallel_per_provider(&serde_json::json!({"maxParallelPerProvider": 99})),
             8
         );
+    }
+
+    // ── to_user_content tests ─────────────────────────────────────────
+
+    #[test]
+    fn to_user_content_text_only() {
+        let mc = MessageContent::Text("hello".to_string());
+        let uc = to_user_content(&mc);
+        match uc {
+            UserContent::Text(t) => assert_eq!(t, "hello"),
+            _ => panic!("expected Text variant"),
+        }
+    }
+
+    #[test]
+    fn to_user_content_multimodal_with_image() {
+        use moltis_sessions::message::{ContentBlock, ImageUrl as SessionImageUrl};
+
+        let mc = MessageContent::Multimodal(vec![
+            ContentBlock::Text {
+                text: "describe this".to_string(),
+            },
+            ContentBlock::ImageUrl {
+                image_url: SessionImageUrl {
+                    url: "data:image/png;base64,AAAA".to_string(),
+                },
+            },
+        ]);
+        let uc = to_user_content(&mc);
+        match uc {
+            UserContent::Multimodal(parts) => {
+                assert_eq!(parts.len(), 2);
+                match &parts[0] {
+                    ContentPart::Text(t) => assert_eq!(t, "describe this"),
+                    _ => panic!("expected Text part"),
+                }
+                match &parts[1] {
+                    ContentPart::Image { media_type, data } => {
+                        assert_eq!(media_type, "image/png");
+                        assert_eq!(data, "AAAA");
+                    },
+                    _ => panic!("expected Image part"),
+                }
+            },
+            _ => panic!("expected Multimodal variant"),
+        }
+    }
+
+    #[test]
+    fn to_user_content_drops_invalid_data_uri() {
+        use moltis_sessions::message::{ContentBlock, ImageUrl as SessionImageUrl};
+
+        let mc = MessageContent::Multimodal(vec![
+            ContentBlock::Text {
+                text: "just text".to_string(),
+            },
+            ContentBlock::ImageUrl {
+                image_url: SessionImageUrl {
+                    url: "https://example.com/image.png".to_string(),
+                },
+            },
+        ]);
+        let uc = to_user_content(&mc);
+        match uc {
+            UserContent::Multimodal(parts) => {
+                // The https URL is not a data URI, so it should be dropped
+                assert_eq!(parts.len(), 1);
+                match &parts[0] {
+                    ContentPart::Text(t) => assert_eq!(t, "just text"),
+                    _ => panic!("expected Text part"),
+                }
+            },
+            _ => panic!("expected Multimodal variant"),
+        }
+    }
+
+    // ── Logbook formatting tests ─────────────────────────────────────────
+
+    #[test]
+    fn format_logbook_html_empty_entries() {
+        assert_eq!(format_logbook_html(&[]), "");
+    }
+
+    #[test]
+    fn format_logbook_html_single_entry() {
+        let entries = vec!["Using Claude Sonnet 4.5. Use /model to change.".to_string()];
+        let html = format_logbook_html(&entries);
+        assert!(html.starts_with("<blockquote expandable>"));
+        assert!(html.ends_with("</blockquote>"));
+        assert!(html.contains("\u{1f4cb} <b>Activity log</b>"));
+        assert!(html.contains("\u{2022} Using Claude Sonnet 4.5. Use /model to change."));
+    }
+
+    #[test]
+    fn format_logbook_html_multiple_entries() {
+        let entries = vec![
+            "Using Claude Sonnet 4.5. Use /model to change.".to_string(),
+            "\u{1f50d} Searching: rust async patterns".to_string(),
+            "\u{1f4bb} Running: `ls -la`".to_string(),
+        ];
+        let html = format_logbook_html(&entries);
+        // Verify all entries are present as bullet points.
+        for entry in &entries {
+            let escaped = entry
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            assert!(
+                html.contains(&format!("\u{2022} {escaped}")),
+                "missing entry: {entry}"
+            );
+        }
+    }
+
+    #[test]
+    fn format_logbook_html_escapes_html_entities() {
+        let entries = vec!["Running: `echo <script>alert(1)</script>`".to_string()];
+        let html = format_logbook_html(&entries);
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&lt;script&gt;"));
     }
 }

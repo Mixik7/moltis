@@ -48,6 +48,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Web UI), configuration reference, access control, session persistence,
   self-chat, media handling, and troubleshooting.
 
+## [0.4.1] - 2026-02-09
+
+### Fixed
+
+- **Clippy lint in map test**: Replace `is_some()`/`unwrap()` with `if let Some` to
+  fix `clippy::unnecessary_unwrap` that broke the v0.4.0 release build.
+
+## [0.4.0] - 2026-02-09
+
+### Added
+
+- **Auto-import external OAuth tokens**: At startup, auto-detected provider
+  tokens (e.g. Codex CLI `~/.codex/auth.json`) are imported into the central
+  `oauth_tokens.json` store so users can manage all providers from the UI.
+- **Passkey onboarding**: The security setup step now offers passkey registration
+  (Touch ID, Face ID, security keys) as the recommended default, with password
+  as a fallback option.
+- **`providers.validate_key` RPC method**: Test provider credentials without
+  saving them — builds a temporary registry, probes with a "ping" message, and
+  returns validation status with available models.
+- **`providers.save_model` RPC method**: Save the preferred model for any
+  configured provider without changing credentials.
+- **`models.test` RPC method**: Test a single model from the live registry with
+  a real LLM request before committing to it.
+- **Model selection for auto-detected providers**: The Providers settings page
+  now shows a "Select Model" button for providers that have available models but
+  no preferred model set. This lets users pick their favorite model for
+  auto-detected providers (e.g. OpenAI Codex detected from `~/.codex/auth.json`).
+- **`show_map` tool**: New LLM-callable tool that composes a static map image
+  from OSM tiles with red/blue marker pins (destination + user location), plus
+  clickable links to Google Maps, Apple Maps, and OpenStreetMap. Supports
+  `user_latitude`/`user_longitude` to show both positions with auto-zoom.
+  Solves the "I can't share links" problem in voice mode.
+- **Location precision modes**: The `get_user_location` tool now accepts a
+  `precision` parameter — `"precise"` (GPS-level, default) for nearby places
+  and directions, or `"coarse"` (city-level, faster) for flights, weather, and
+  time zones. The LLM picks the appropriate mode based on the user's query.
+
+### Changed
+
+- Show "No LLM Providers Connected" card instead of welcome greeting when no
+  providers are configured.
+- **Onboarding provider setup**: Credentials are now validated before saving.
+  After successful validation, a model selector shows available models for the
+  provider. The selected model is tested with a real request before completing
+  setup. Clear error messages are shown for common failures (invalid API key,
+  rate limits, connection issues).
+- **Settings provider setup**: The main Providers settings page now uses the
+  same validate-first flow as onboarding. Credentials are validated before
+  saving (bad keys are never persisted), a model selector appears after
+  validation, and OAuth flows show model selection after authentication.
+
+### Fixed
+
+- **Docker RAM detection**: Fall back to `/proc/meminfo` when `sysinfo` returns
+  0 bytes for memory inside Docker/cgroup environments.
+- **MLX model suggested on Linux**: Use backend-aware model suggestion so MLX
+  models are only suggested on Apple Silicon, not on Linux servers.
+- **Host package provisioning noise**: Skip `apt-get` when running as non-root
+  with no passwordless sudo, instead of failing with permission denied warnings.
+- **Browser image pull without runtime**: Guard browser container image pull to
+  skip when no usable container runtime is available (backend = "none").
+- **OAuth token store logging**: Replace silent `.ok()?` chains with explicit
+  `warn!`/`info!` logging in `TokenStore` load/save/delete for diagnosability.
+- **Provider warning noise**: Downgrade "tokens not found" log from `warn!` to
+  `debug!` for unconfigured providers (GitHub Copilot, OpenAI Codex).
+- **models.detect_supported noise**: Downgrade UNAVAILABLE RPC errors from
+  `warn!` to `debug!` since they indicate expected "not ready yet" states.
 ## [0.3.8] - 2026-02-09
 
 ### Changed

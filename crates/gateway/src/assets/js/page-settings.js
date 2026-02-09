@@ -9,6 +9,7 @@ import { onEvent } from "./events.js";
 import * as gon from "./gon.js";
 import { refresh as refreshGon } from "./gon.js";
 import { sendRpc } from "./helpers.js";
+import { detectPasskeyName } from "./passkey-detect.js";
 import * as push from "./push.js";
 import { isStandalone } from "./pwa.js";
 import { navigate, registerPrefix } from "./router.js";
@@ -492,6 +493,7 @@ function SecuritySection() {
 	var [pkLoading, setPkLoading] = useState(true);
 	var [editingPk, setEditingPk] = useState(null);
 	var [editingPkName, setEditingPkName] = useState("");
+	var [passkeyOrigins, setPasskeyOrigins] = useState([]);
 
 	var [apiKeys, setApiKeys] = useState([]);
 	var [akLabel, setAkLabel] = useState("");
@@ -512,6 +514,7 @@ function SecuritySection() {
 				if (d?.auth_disabled) setAuthDisabled(true);
 				if (d?.localhost_only) setLocalhostOnly(true);
 				if (d?.has_password === false) setHasPassword(false);
+				if (d?.passkey_origins) setPasskeyOrigins(d.passkey_origins);
 				setAuthLoading(false);
 				rerender();
 			})
@@ -598,7 +601,7 @@ function SecuritySection() {
 			.then(({ cred, challengeId }) => {
 				var body = {
 					challenge_id: challengeId,
-					name: pkName.trim() || "Passkey",
+					name: pkName.trim() || detectPasskeyName(cred),
 					credential: {
 						id: cred.id,
 						rawId: bufToB64(cred.rawId),
@@ -839,6 +842,7 @@ function SecuritySection() {
 		<!-- Passkeys -->
 		<div style="max-width:600px;border-top:1px solid var(--border);padding-top:16px;">
 			<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">Passkeys</h3>
+			${passkeyOrigins.length > 1 && html`<div class="text-xs text-[var(--muted)]" style="margin-bottom:8px;">Passkeys will work when visiting: ${passkeyOrigins.map((o) => o.replace(/^https?:\/\//, "")).join(", ")}</div>`}
 			${
 				pkLoading
 					? html`<div class="text-xs text-[var(--muted)]">Loading\u2026</div>`
@@ -1040,15 +1044,6 @@ function decodeBase64Safe(input) {
 	var bytes = new Uint8Array(binary.length);
 	for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 	return bytes;
-}
-
-function encodeBase64Safe(bytes) {
-	var chunk = 0x8000;
-	var str = "";
-	for (var i = 0; i < bytes.length; i += chunk) {
-		str += String.fromCharCode(...bytes.subarray(i, i + chunk));
-	}
-	return btoa(str);
 }
 
 // ── Configuration section ─────────────────────────────────────
@@ -1818,24 +1813,36 @@ function VoiceSection() {
 					rerender();
 
 					var audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-					var buffer = await audioBlob.arrayBuffer();
-					var base64 = encodeBase64Safe(new Uint8Array(buffer));
 
-					var sttRes = await sendRpc("stt.transcribe", {
-						audio: base64,
-						format: "webm",
-						provider: providerId,
-					});
+					try {
+						var resp = await fetch(
+							`/api/sessions/${encodeURIComponent(S.activeSessionKey)}/upload?transcribe=true&provider=${encodeURIComponent(providerId)}`,
+							{
+								method: "POST",
+								headers: { "Content-Type": audioBlob.type || "audio/webm" },
+								body: audioBlob,
+							},
+						);
+						var sttRes = await resp.json();
 
-					if (sttRes?.ok && sttRes.payload?.text) {
+						if (sttRes.ok && sttRes.transcription?.text) {
+							setVoiceTestResults((prev) => ({
+								...prev,
+								[providerId]: { text: sttRes.transcription.text, error: null },
+							}));
+						} else {
+							setVoiceTestResults((prev) => ({
+								...prev,
+								[providerId]: {
+									text: null,
+									error: sttRes.transcriptionError || sttRes.error || "STT test failed",
+								},
+							}));
+						}
+					} catch (fetchErr) {
 						setVoiceTestResults((prev) => ({
 							...prev,
-							[providerId]: { text: sttRes.payload.text, error: null },
-						}));
-					} else {
-						setVoiceTestResults((prev) => ({
-							...prev,
-							[providerId]: { text: null, error: sttRes?.error?.message || "STT test failed" },
+							[providerId]: { text: null, error: fetchErr.message || "STT test failed" },
 						}));
 					}
 					setVoiceTesting(null);

@@ -181,7 +181,7 @@ impl ChannelEventSink for GatewayChannelEventSink {
                         }))
                         .await;
 
-                    // Look up displayName for the notification.
+                    // Buffer model notification for the logbook instead of sending separately.
                     let display: String = if let Ok(models_val) = state.services.model.list().await
                         && let Some(models) = models_val.as_array()
                     {
@@ -194,17 +194,8 @@ impl ChannelEventSink for GatewayChannelEventSink {
                     } else {
                         model.clone()
                     };
-                    if let Some(outbound) = state.services.channel_outbound_arc() {
-                        let msg = format!("Using *{display}*. Use /model to change.");
-                        let _ = outbound
-                            .send_text(
-                                &reply_to.account_id,
-                                &reply_to.chat_id,
-                                &msg,
-                                reply_to.message_id.as_deref(),
-                            )
-                            .await;
-                    }
+                    let msg = format!("Using {display}. Use /model to change.");
+                    state.push_channel_status_log(&session_key, msg).await;
                 }
             } else {
                 let session_has_model = if let Some(ref sm) = state.services.session_metadata {
@@ -219,8 +210,6 @@ impl ChannelEventSink for GatewayChannelEventSink {
                     && let Some(id) = first.get("id").and_then(|v| v.as_str())
                 {
                     params["model"] = serde_json::json!(id);
-                    // Also persist on the session so subsequent messages
-                    // (including from the web UI) use the same model.
                     let _ = state
                         .services
                         .session
@@ -230,22 +219,13 @@ impl ChannelEventSink for GatewayChannelEventSink {
                         }))
                         .await;
 
-                    // Notify the user which model was auto-selected.
+                    // Buffer model notification for the logbook.
                     let display = first
                         .get("displayName")
                         .and_then(|v| v.as_str())
                         .unwrap_or(id);
-                    if let Some(outbound) = state.services.channel_outbound_arc() {
-                        let msg = format!("Using *{display}*. Use /model to change.");
-                        let _ = outbound
-                            .send_text(
-                                &reply_to.account_id,
-                                &reply_to.chat_id,
-                                &msg,
-                                reply_to.message_id.as_deref(),
-                            )
-                            .await;
-                    }
+                    let msg = format!("Using {display}. Use /model to change.");
+                    state.push_channel_status_log(&session_key, msg).await;
                 }
             }
 
@@ -404,19 +384,16 @@ impl ChannelEventSink for GatewayChannelEventSink {
             .get()
             .ok_or_else(|| anyhow!("gateway not ready"))?;
 
-        // Encode audio as base64 for the STT service
-        let audio_base64 =
-            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, audio_data);
-
-        let params = serde_json::json!({
-            "audio": audio_base64,
-            "format": format,
-        });
-
         let result = state
             .services
             .stt
-            .transcribe(params)
+            .transcribe_bytes(
+                bytes::Bytes::copy_from_slice(audio_data),
+                format,
+                None,
+                None,
+                None,
+            )
             .await
             .map_err(|e| anyhow!("transcription failed: {}", e))?;
 
@@ -460,7 +437,7 @@ impl ChannelEventSink for GatewayChannelEventSink {
         };
 
         // Update in-memory cache.
-        let geo = moltis_config::GeoLocation::now(latitude, longitude);
+        let geo = moltis_config::GeoLocation::now(latitude, longitude, None);
         state.inner.write().await.cached_location = Some(geo.clone());
 
         // Persist to USER.md (best-effort).
@@ -643,17 +620,8 @@ impl ChannelEventSink for GatewayChannelEventSink {
                 } else {
                     model.clone()
                 };
-                if let Some(outbound) = state.services.channel_outbound_arc() {
-                    let msg = format!("Using *{display}*. Use /model to change.");
-                    let _ = outbound
-                        .send_text(
-                            &reply_to.account_id,
-                            &reply_to.chat_id,
-                            &msg,
-                            reply_to.message_id.as_deref(),
-                        )
-                        .await;
-                }
+                let msg = format!("Using {display}. Use /model to change.");
+                state.push_channel_status_log(&session_key, msg).await;
             }
         } else {
             let session_has_model = if let Some(ref sm) = state.services.session_metadata {
@@ -681,17 +649,8 @@ impl ChannelEventSink for GatewayChannelEventSink {
                     .get("displayName")
                     .and_then(|v| v.as_str())
                     .unwrap_or(id);
-                if let Some(outbound) = state.services.channel_outbound_arc() {
-                    let msg = format!("Using *{display}*. Use /model to change.");
-                    let _ = outbound
-                        .send_text(
-                            &reply_to.account_id,
-                            &reply_to.chat_id,
-                            &msg,
-                            reply_to.message_id.as_deref(),
-                        )
-                        .await;
-                }
+                let msg = format!("Using {display}. Use /model to change.");
+                state.push_channel_status_log(&session_key, msg).await;
             }
         }
 

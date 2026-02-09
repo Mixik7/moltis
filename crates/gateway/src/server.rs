@@ -95,15 +95,17 @@ impl moltis_tools::location::LocationRequester for GatewayLocationRequester {
     async fn request_location(
         &self,
         conn_id: &str,
+        precision: moltis_tools::location::LocationPrecision,
     ) -> anyhow::Result<moltis_tools::location::LocationResult> {
         use moltis_tools::location::{LocationError, LocationResult};
 
         let request_id = uuid::Uuid::new_v4().to_string();
 
-        // Send a location.request event to the browser client.
+        // Send a location.request event to the browser client, including
+        // the requested precision so JS can adjust geolocation options.
         let event = moltis_protocol::EventFrame::new(
             "location.request",
-            serde_json::json!({ "requestId": request_id }),
+            serde_json::json!({ "requestId": request_id, "precision": precision }),
             self.state.next_seq(),
         );
         let event_json = serde_json::to_string(&event)?;
@@ -461,6 +463,13 @@ fn build_protected_api_routes() -> Router<AppState> {
             axum::routing::post(crate::tools_routes::restart),
         )
         .route(
+            "/api/sessions/{session_key}/upload",
+            axum::routing::post(crate::upload_routes::session_upload)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    crate::upload_routes::MAX_UPLOAD_SIZE,
+                )),
+        )
+        .route(
             "/api/sessions/{session_key}/media/{filename}",
             get(api_session_media_handler),
         )
@@ -531,9 +540,9 @@ fn build_cors_layer() -> CorsLayer {
         .allow_headers(Any)
 }
 
-/// 16 MiB request body limit — large enough for file uploads, small enough to
-/// prevent memory exhaustion from oversized payloads.
-const REQUEST_BODY_LIMIT: usize = 16 * 1024 * 1024;
+/// 2 MiB global request body limit — sufficient for any JSON API payload, small
+/// enough to limit abuse. The upload endpoint has its own 25 MiB limit.
+const REQUEST_BODY_LIMIT: usize = 2 * 1024 * 1024;
 
 /// Apply the full middleware stack to the router.
 ///
@@ -818,6 +827,13 @@ pub async fn start_gateway(
                     "llm auto-detected provider source"
                 );
             }
+            // Import external tokens (e.g. Codex CLI auth.json) into the
+            // token store so all providers read from a single location.
+            let import_token_store = moltis_oauth::TokenStore::new();
+            crate::provider_setup::import_detected_oauth_tokens(
+                &auto_detected_provider_sources,
+                &import_token_store,
+            );
         }
     }
 
@@ -1031,13 +1047,42 @@ pub async fn start_gateway(
     };
     let rp_origin_str = std::env::var("MOLTIS_WEBAUTHN_ORIGIN")
         .unwrap_or_else(|_| format!("{default_scheme}://{rp_id}:{port}"));
+    // Build extra allowed origins so passkeys work when accessed via mDNS
+    // hostname (e.g. http://m4max.local:18080) in addition to localhost.
+    let mut extra_origins = Vec::new();
+    if let Ok(hn) = hostname::get() {
+        let hn_str = hn.to_string_lossy();
+        if hn_str != rp_id && hn_str != "localhost" {
+            if let Ok(url) =
+                webauthn_rs::prelude::Url::parse(&format!("{default_scheme}://{hn_str}:{port}"))
+            {
+                extra_origins.push(url);
+            }
+            // Also accept the .local mDNS variant if the hostname doesn't
+            // already end with .local.
+            if !hn_str.ends_with(".local")
+                && let Ok(url) = webauthn_rs::prelude::Url::parse(&format!(
+                    "{default_scheme}://{hn_str}.local:{port}"
+                ))
+            {
+                extra_origins.push(url);
+            }
+        }
+    }
+
     let webauthn_state = match webauthn_rs::prelude::Url::parse(&rp_origin_str) {
-        Ok(rp_origin) => match crate::auth_webauthn::WebAuthnState::new(&rp_id, &rp_origin) {
-            Ok(wa) => Some(Arc::new(wa)),
-            Err(e) => {
-                tracing::warn!("failed to init WebAuthn: {e}");
-                None
-            },
+        Ok(rp_origin) => {
+            match crate::auth_webauthn::WebAuthnState::new(&rp_id, &rp_origin, &extra_origins) {
+                Ok(wa) => {
+                    let origins = wa.get_allowed_origins();
+                    info!(rp_id = %rp_id, origins = ?origins, "WebAuthn passkeys enabled");
+                    Some(Arc::new(wa))
+                },
+                Err(e) => {
+                    tracing::warn!("failed to init WebAuthn: {e}");
+                    None
+                },
+            }
         },
         Err(e) => {
             tracing::warn!("invalid WebAuthn origin URL '{rp_origin_str}': {e}");
@@ -1479,6 +1524,7 @@ pub async fn start_gateway(
             sandbox_router.config().mode,
             moltis_tools::sandbox::SandboxMode::Off
         )
+        && sandbox_router.backend_name() != "none"
     {
         let sandbox_image = config.tools.browser.sandbox_image.clone();
         let deferred_for_browser = Arc::clone(&deferred_state);
@@ -2260,6 +2306,9 @@ pub async fn start_gateway(
             location_requester,
         )));
 
+        // Register map tool for showing static map images with links.
+        tool_registry.register(Box::new(moltis_tools::map::ShowMapTool::new()));
+
         // Register spawn_agent tool for sub-agent support.
         // The tool gets a snapshot of the current registry (without itself)
         // so sub-agents have access to all other tools.
@@ -2493,15 +2542,24 @@ pub async fn start_gateway(
     } else {
         "http"
     };
+    // When bound to an unspecified address (0.0.0.0 / ::), resolve the
+    // machine's outbound IP so the printed URL is clickable.
+    let display_ip = if addr.ip().is_unspecified() {
+        resolve_outbound_ip(addr.ip().is_ipv6())
+            .map(|ip| std::net::SocketAddr::new(ip, port))
+            .unwrap_or(addr)
+    } else {
+        addr
+    };
     // Use moltis.localhost for display URLs when bound to loopback with TLS.
     #[cfg(feature = "tls")]
     let display_host = if is_localhost && tls_active {
         format!("{}:{}", crate::tls::LOCALHOST_DOMAIN, port)
     } else {
-        addr.to_string()
+        display_ip.to_string()
     };
     #[cfg(not(feature = "tls"))]
-    let display_host = addr.to_string();
+    let display_host = display_ip.to_string();
     #[cfg_attr(not(feature = "tls"), allow(unused_mut))]
     let mut lines = vec![
         format!("moltis gateway v{}", state.version),
@@ -3276,6 +3334,23 @@ async fn websocket_header_authenticated(
     }
 
     false
+}
+
+/// Resolve the machine's primary outbound IP address.
+///
+/// Connects a UDP socket to a public DNS address (no traffic is sent) and
+/// reads back the local address the OS chose.  Returns `None` when no
+/// routable interface is available.
+fn resolve_outbound_ip(ipv6: bool) -> Option<std::net::IpAddr> {
+    use std::net::UdpSocket;
+    let (bind, target) = if ipv6 {
+        (":::0", "[2001:4860:4860::8888]:80")
+    } else {
+        ("0.0.0.0:0", "8.8.8.8:80")
+    };
+    let socket = UdpSocket::bind(bind).ok()?;
+    socket.connect(target).ok()?;
+    Some(socket.local_addr().ok()?.ip())
 }
 
 fn extract_ws_session_token(headers: &axum::http::HeaderMap) -> Option<&str> {
@@ -5321,6 +5396,27 @@ mod tests {
                 parse_git_branch("  feat/my-feature  \n"),
                 Some("feat/my-feature".to_owned())
             );
+        }
+    }
+
+    #[test]
+    fn resolve_outbound_ip_returns_non_loopback() {
+        // This test requires network connectivity; skip gracefully otherwise.
+        if let Some(ip) = resolve_outbound_ip(false) {
+            assert!(!ip.is_loopback(), "expected a non-loopback IP, got {ip}");
+            assert!(!ip.is_unspecified(), "expected a routable IP, got {ip}");
+        }
+    }
+
+    #[test]
+    fn display_host_uses_real_ip_for_unspecified_bind() {
+        let addr: std::net::SocketAddr = "0.0.0.0:9999".parse().unwrap();
+        assert!(addr.ip().is_unspecified());
+
+        if let Some(ip) = resolve_outbound_ip(false) {
+            let display = std::net::SocketAddr::new(ip, addr.port());
+            assert!(!display.ip().is_unspecified());
+            assert_eq!(display.port(), 9999);
         }
     }
 }
