@@ -1,0 +1,19 @@
+[package]
+edition.workspace    = true
+license.workspace    = true
+name                 = "benchmarks"
+repository.workspace = true
+version.workspace    = true
+
+[dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]
+divan = { package = "codspeed-divan-compat", version = "4.3" }
+
+[[bench]]
+harness = false
+name    = "basic"
+
+[lints]
+workspace = true

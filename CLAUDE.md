@@ -809,6 +809,18 @@ The Build Packages workflow derives artifact versions from the tag when running
 on tagged pushes, but `Cargo.toml` must still be kept in sync for local builds,
 packaging metadata consistency, and future non-tag runs.
 
+**Cargo.lock must stay in sync.** After changing dependencies or merging
+`main`, run `cargo fetch` (without `--locked`) to sync the lockfile without
+upgrading existing dependency versions, then commit the result. Verify with
+`cargo fetch --locked`. CI uses `--locked` and will reject a stale lockfile.
+`local-validate.sh` handles this automatically — if the lockfile is stale it
+runs `cargo fetch` and auto-commits the update before proceeding.
+
+Only use `cargo update --workspace` when you intentionally want to upgrade
+dependency versions. For routine lockfile sync (e.g. after merging main or
+bumping the workspace version), `cargo fetch` is sufficient and won't change
+versions unnecessarily.
+
 **Merging main into your branch:** When merging `main` into your current branch
 and encountering conflicts, resolve them by keeping both sides of the changes.
 Don't discard either the incoming changes from main or your local changes —
