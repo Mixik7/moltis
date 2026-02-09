@@ -4210,31 +4210,33 @@ async fn deliver_channel_replies_to_targets(
             };
             let reply_to = target.message_id.as_deref();
             match target.channel_type {
-                moltis_channels::ChannelType::Telegram => match tts_payload {
-                    Some(payload) => {
-                        if let Err(e) = outbound
-                            .send_media(&target.account_id, &target.chat_id, &payload, reply_to)
-                            .await
-                        {
-                            warn!(
-                                account_id = target.account_id,
-                                chat_id = target.chat_id,
-                                "failed to send channel voice reply: {e}"
-                            );
-                        }
-                    },
-                    None => {
-                        if let Err(e) = outbound
-                            .send_text(&target.account_id, &target.chat_id, &text, reply_to)
-                            .await
-                        {
-                            warn!(
-                                account_id = target.account_id,
-                                chat_id = target.chat_id,
-                                "failed to send channel reply: {e}"
-                            );
-                        }
-                    },
+                moltis_channels::ChannelType::Telegram | moltis_channels::ChannelType::Whatsapp => {
+                    match tts_payload {
+                        Some(payload) => {
+                            if let Err(e) = outbound
+                                .send_media(&target.account_id, &target.chat_id, &payload, reply_to)
+                                .await
+                            {
+                                warn!(
+                                    account_id = target.account_id,
+                                    chat_id = target.chat_id,
+                                    "failed to send channel voice reply: {e}"
+                                );
+                            }
+                        },
+                        None => {
+                            if let Err(e) = outbound
+                                .send_text(&target.account_id, &target.chat_id, &text, reply_to)
+                                .await
+                            {
+                                warn!(
+                                    account_id = target.account_id,
+                                    chat_id = target.chat_id,
+                                    "failed to send channel reply: {e}"
+                                );
+                            }
+                        },
+                    }
                 },
             }
         }));
@@ -4568,7 +4570,7 @@ async fn send_screenshot_to_channels(
         let payload = payload.clone();
         tasks.push(tokio::spawn(async move {
             match target.channel_type {
-                moltis_channels::ChannelType::Telegram => {
+                moltis_channels::ChannelType::Telegram | moltis_channels::ChannelType::Whatsapp => {
                     let reply_to = target.message_id.as_deref();
                     if let Err(e) = outbound
                         .send_media(&target.account_id, &target.chat_id, &payload, reply_to)
@@ -4579,8 +4581,7 @@ async fn send_screenshot_to_channels(
                             chat_id = target.chat_id,
                             "failed to send screenshot to channel: {e}"
                         );
-                        // Notify the user of the error
-                        let error_msg = format!("⚠️ Failed to send screenshot: {e}");
+                        let error_msg = format!("Failed to send screenshot: {e}");
                         let _ = outbound
                             .send_text(&target.account_id, &target.chat_id, &error_msg, reply_to)
                             .await;
@@ -4588,7 +4589,7 @@ async fn send_screenshot_to_channels(
                         debug!(
                             account_id = target.account_id,
                             chat_id = target.chat_id,
-                            "sent screenshot to telegram"
+                            "sent screenshot to channel"
                         );
                     }
                 },

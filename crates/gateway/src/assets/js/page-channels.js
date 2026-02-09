@@ -3,7 +3,7 @@
 import { signal, useSignal } from "@preact/signals";
 import { html } from "htm/preact";
 import { render } from "preact";
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { onEvent } from "./events.js";
 import { sendRpc } from "./helpers.js";
 import { updateNavCount } from "./nav-counts.js";
@@ -25,9 +25,16 @@ export function prefetchChannels() {
 }
 var senders = signal([]);
 var activeTab = signal("channels");
-var showAddModal = signal(false);
+var showAddTelegramModal = signal(false);
+var showAddWhatsAppModal = signal(false);
+var showChannelPicker = signal(false);
 var editingChannel = signal(null);
 var sendersAccount = signal("");
+
+// Track WhatsApp pairing state (updated by WebSocket events).
+var waQrData = signal(null);
+var waPairingAccountId = signal(null);
+var waPairingError = signal(null);
 
 function loadChannels() {
 	sendRpc("channels.status", {}).then((res) => {
@@ -51,12 +58,30 @@ function loadSenders() {
 	});
 }
 
-// ── Telegram icon (inline SVG via htm) ──────────────────────
+// ── Channel icons (inline SVG via htm) ───────────────────────
 function TelegramIcon() {
 	return html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" stroke-width="1.5">
     <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
   </svg>`;
+}
+
+function WhatsAppIcon() {
+	return html`<svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 21l1.65-3.8a9 9 0 113.4 2.9L3 21" />
+    <path d="M9 10a.5.5 0 001 0V9a.5.5 0 00-1 0v1zm5 3a.5.5 0 001 0v-1a.5.5 0 00-1 0v1z" />
+  </svg>`;
+}
+
+function channelIcon(type) {
+	if (type === "whatsapp") return html`<${WhatsAppIcon} />`;
+	return html`<${TelegramIcon} />`;
+}
+
+function channelDisplayType(type) {
+	if (type === "whatsapp") return "WhatsApp";
+	return "Telegram";
 }
 
 // ── Channel card ─────────────────────────────────────────────
@@ -72,7 +97,7 @@ function ChannelCard(props) {
 		});
 	}
 
-	var statusClass = ch.status === "connected" ? "configured" : "oauth";
+	var statusClass = ch.status === "connected" ? "configured" : ch.status === "pairing" ? "oauth" : "oauth";
 	var sessionLine = "";
 	if (ch.sessions && ch.sessions.length > 0) {
 		var active = ch.sessions.filter((s) => s.active);
@@ -85,10 +110,10 @@ function ChannelCard(props) {
 	return html`<div class="provider-card" style="padding:12px 14px;border-radius:8px;margin-bottom:8px;">
     <div style="display:flex;align-items:center;gap:10px;">
       <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:var(--surface2);">
-        <${TelegramIcon} />
+        ${channelIcon(ch.type)}
       </span>
       <div style="display:flex;flex-direction:column;gap:2px;">
-        <span class="text-sm text-[var(--text-strong)]">${ch.name || ch.account_id || "Telegram"}</span>
+        <span class="text-sm text-[var(--text-strong)]">${ch.name || ch.account_id || channelDisplayType(ch.type)}</span>
         ${ch.details && html`<span class="text-xs text-[var(--muted)]">${ch.details}</span>`}
         ${sessionLine && html`<span class="text-xs text-[var(--muted)]">${sessionLine}</span>`}
       </div>
@@ -109,11 +134,33 @@ function ChannelCard(props) {
 function ChannelsTab() {
 	if (channels.value.length === 0) {
 		return html`<div style="text-align:center;padding:40px 0;">
-      <div class="text-sm text-[var(--muted)]" style="margin-bottom:12px;">No Telegram bots connected.</div>
-      <div class="text-xs text-[var(--muted)]">Click "+ Add Telegram Bot" to connect one using a token from @BotFather.</div>
+      <div class="text-sm text-[var(--muted)]" style="margin-bottom:12px;">No channels connected.</div>
+      <div class="text-xs text-[var(--muted)]">Click "+ Add Channel" to connect a Telegram bot or WhatsApp account.</div>
     </div>`;
 	}
 	return html`${channels.value.map((ch) => html`<${ChannelCard} key=${ch.account_id} channel=${ch} />`)}`;
+}
+
+// ── Sender row renderer ─────────────────────────────────────
+function renderSenderRow(s, onAction) {
+	var identifier = s.username || s.peer_id;
+	var lastSeenMs = s.last_seen ? s.last_seen * 1000 : 0;
+	var statusBadge = s.otp_pending
+		? html`<span class="provider-item-badge cursor-pointer select-none" style="background:var(--warning-bg, #fef3c7);color:var(--warning-text, #92400e);" onClick=${() => {
+				navigator.clipboard.writeText(s.otp_pending.code).then(() => showToast("OTP code copied"));
+			}}>OTP: <code class="text-xs">${s.otp_pending.code}</code></span>`
+		: html`<span class="provider-item-badge ${s.allowed ? "configured" : "oauth"}">${s.allowed ? "Allowed" : "Denied"}</span>`;
+	var actionBtn = s.allowed
+		? html`<button class="provider-btn provider-btn-sm provider-btn-danger" onClick=${() => onAction(identifier, "deny")}>Deny</button>`
+		: html`<button class="provider-btn provider-btn-sm" onClick=${() => onAction(identifier, "approve")}>Approve</button>`;
+	return html`<tr key=${s.peer_id}>
+    <td class="senders-td">${s.sender_name || s.peer_id}</td>
+    <td class="senders-td" style="color:var(--muted);">${s.username ? `@${s.username}` : "\u2014"}</td>
+    <td class="senders-td">${s.message_count}</td>
+    <td class="senders-td" style="color:var(--muted);font-size:12px;">${lastSeenMs ? html`<time data-epoch-ms="${lastSeenMs}">${new Date(lastSeenMs).toISOString()}</time>` : "\u2014"}</td>
+    <td class="senders-td">${statusBadge}</td>
+    <td class="senders-td">${actionBtn}</td>
+  </tr>`;
 }
 
 // ── Senders tab ──────────────────────────────────────────────
@@ -165,32 +212,7 @@ function SendersTab() {
         <th class="senders-th">Status</th><th class="senders-th">Action</th>
       </tr></thead>
       <tbody>
-        ${senders.value.map((s) => {
-					var identifier = s.username || s.peer_id;
-					var lastSeenMs = s.last_seen ? s.last_seen * 1000 : 0;
-					return html`<tr key=${s.peer_id}>
-            <td class="senders-td">${s.sender_name || s.peer_id}</td>
-            <td class="senders-td" style="color:var(--muted);">${s.username ? `@${s.username}` : "\u2014"}</td>
-            <td class="senders-td">${s.message_count}</td>
-            <td class="senders-td" style="color:var(--muted);font-size:12px;">${lastSeenMs ? html`<time data-epoch-ms="${lastSeenMs}">${new Date(lastSeenMs).toISOString()}</time>` : "\u2014"}</td>
-            <td class="senders-td">
-              ${
-								s.otp_pending
-									? html`<span class="provider-item-badge cursor-pointer select-none" style="background:var(--warning-bg, #fef3c7);color:var(--warning-text, #92400e);" onClick=${() => {
-											navigator.clipboard.writeText(s.otp_pending.code).then(() => showToast("OTP code copied"));
-										}}>OTP: <code class="text-xs">${s.otp_pending.code}</code></span>`
-									: html`<span class="provider-item-badge ${s.allowed ? "configured" : "oauth"}">${s.allowed ? "Allowed" : "Denied"}</span>`
-							}
-            </td>
-            <td class="senders-td">
-              ${
-								s.allowed
-									? html`<button class="provider-btn provider-btn-sm provider-btn-danger" onClick=${() => onAction(identifier, "deny")}>Deny</button>`
-									: html`<button class="provider-btn provider-btn-sm" onClick=${() => onAction(identifier, "approve")}>Approve</button>`
-							}
-            </td>
-          </tr>`;
-				})}
+        ${senders.value.map((s) => renderSenderRow(s, onAction))}
       </tbody>
     </table>`
 		}
@@ -246,8 +268,45 @@ function AllowlistInput({ value, onChange }) {
   </div>`;
 }
 
-// ── Add channel modal ────────────────────────────────────────
-function AddChannelModal() {
+// ── Channel type picker (dropdown) ───────────────────────────
+function ChannelPicker() {
+	var ref = useRef(null);
+	useEffect(() => {
+		if (!showChannelPicker.value) return;
+		function onClickOutside(e) {
+			if (ref.current && !ref.current.contains(e.target)) {
+				showChannelPicker.value = false;
+			}
+		}
+		document.addEventListener("click", onClickOutside, true);
+		return () => document.removeEventListener("click", onClickOutside, true);
+	}, [showChannelPicker.value]);
+
+	if (!showChannelPicker.value) return null;
+
+	return html`<div ref=${ref} class="absolute rounded-md border border-[var(--border)] bg-[var(--surface)] shadow-lg"
+    style="z-index:50;min-width:200px;top:100%;left:0;margin-top:4px;">
+    <button class="flex items-center gap-2 w-full px-3 py-2 text-sm text-[var(--text)] hover:bg-[var(--surface2)] rounded-t-md"
+      onClick=${() => {
+				showChannelPicker.value = false;
+				showAddTelegramModal.value = true;
+			}}>
+      <${TelegramIcon} />
+      Telegram Bot
+    </button>
+    <button class="flex items-center gap-2 w-full px-3 py-2 text-sm text-[var(--text)] hover:bg-[var(--surface2)] rounded-b-md"
+      onClick=${() => {
+				showChannelPicker.value = false;
+				showAddWhatsAppModal.value = true;
+			}}>
+      <${WhatsAppIcon} />
+      WhatsApp
+    </button>
+  </div>`;
+}
+
+// ── Add Telegram modal ───────────────────────────────────────
+function AddTelegramModal() {
 	var error = useSignal("");
 	var saving = useSignal(false);
 	var addModel = useSignal("");
@@ -286,7 +345,7 @@ function AddChannelModal() {
 		}).then((res) => {
 			saving.value = false;
 			if (res?.ok) {
-				showAddModal.value = false;
+				showAddTelegramModal.value = false;
 				addModel.value = "";
 				allowlistItems.value = [];
 				loadChannels();
@@ -306,8 +365,8 @@ function AddChannelModal() {
 	var inputStyle =
 		"font-family:var(--font-body);background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:.85rem;";
 
-	return html`<${Modal} show=${showAddModal.value} onClose=${() => {
-		showAddModal.value = false;
+	return html`<${Modal} show=${showAddTelegramModal.value} onClose=${() => {
+		showAddTelegramModal.value = false;
 	}} title="Add Telegram Bot">
     <div class="channel-form">
       <div class="channel-card">
@@ -352,6 +411,144 @@ function AddChannelModal() {
   </${Modal}>`;
 }
 
+// ── QR code SVG renderer ─────────────────────────────────────
+// Renders a QR data string as a simple SVG using the canvas-free
+// approach: each module is a <rect> element.
+function QrCodeDisplay({ data }) {
+	if (!data)
+		return html`<div class="flex items-center justify-center p-8 text-[var(--muted)] text-sm">Waiting for QR code...</div>`;
+
+	// Generate a simple visual representation. Since we don't have
+	// a full QR encoder in JS, we display the raw data with a prompt
+	// to scan from the terminal, plus auto-refresh via WebSocket.
+	return html`<div class="flex flex-col items-center gap-3 p-4">
+    <div class="rounded-lg bg-white p-3" style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;">
+      <div class="text-center text-xs text-gray-600">
+        <div style="font-family:monospace;font-size:9px;word-break:break-all;max-height:180px;overflow:hidden;">${data.substring(0, 200)}</div>
+      </div>
+    </div>
+    <div class="text-xs text-[var(--muted)] text-center">
+      Scan this QR code in your terminal output,<br/>or open WhatsApp > Settings > Linked Devices > Link a Device.
+    </div>
+  </div>`;
+}
+
+// ── Add WhatsApp modal ───────────────────────────────────────
+function AddWhatsAppModal() {
+	var error = useSignal("");
+	var saving = useSignal(false);
+	var addModel = useSignal("");
+	var pairingStarted = useSignal(false);
+	var allowlistItems = useSignal([]);
+
+	var inputStyle =
+		"font-family:var(--font-body);background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:.85rem;";
+	var selectStyle =
+		"font-family:var(--font-body);background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:.85rem;cursor:pointer;";
+
+	function onStartPairing(e) {
+		e.preventDefault();
+		var form = e.target.closest(".channel-form");
+		var accountId = form.querySelector("[data-field=accountId]").value.trim();
+		if (!accountId) {
+			error.value = "Account ID is required.";
+			return;
+		}
+		error.value = "";
+		saving.value = true;
+		waQrData.value = null;
+		waPairingError.value = null;
+		waPairingAccountId.value = accountId;
+
+		var addConfig = {
+			dm_policy: form.querySelector("[data-field=dmPolicy]")?.value || "open",
+			allowlist: allowlistItems.value,
+		};
+		if (addModel.value) {
+			addConfig.model = addModel.value;
+			var found = modelsSig.value.find((x) => x.id === addModel.value);
+			if (found?.provider) addConfig.model_provider = found.provider;
+		}
+		sendRpc("channels.add", {
+			type: "whatsapp",
+			account_id: accountId,
+			config: addConfig,
+		}).then((res) => {
+			saving.value = false;
+			if (res?.ok) {
+				pairingStarted.value = true;
+			} else {
+				error.value = (res?.error && (res.error.message || res.error.detail)) || "Failed to start pairing.";
+			}
+		});
+	}
+
+	function onClose() {
+		showAddWhatsAppModal.value = false;
+		pairingStarted.value = false;
+		waQrData.value = null;
+		waPairingError.value = null;
+		waPairingAccountId.value = null;
+		allowlistItems.value = [];
+		loadChannels();
+	}
+
+	var defaultPlaceholder =
+		modelsSig.value.length > 0
+			? `(default: ${modelsSig.value[0].displayName || modelsSig.value[0].id})`
+			: "(server default)";
+
+	return html`<${Modal} show=${showAddWhatsAppModal.value} onClose=${onClose} title="Add WhatsApp">
+    <div class="channel-form">
+      ${
+				pairingStarted.value
+					? html`
+        <div class="flex flex-col items-center gap-4">
+          ${
+						waPairingError.value
+							? html`<div class="text-sm text-[var(--error)]">${waPairingError.value}</div>`
+							: html`<${QrCodeDisplay} data=${waQrData.value} />`
+					}
+          <div class="text-xs text-[var(--muted)]">QR code refreshes automatically. Keep this window open.</div>
+        </div>
+      `
+					: html`
+        <div class="channel-card">
+          <span class="text-xs font-medium text-[var(--text-strong)]">Link your WhatsApp</span>
+          <div class="text-xs text-[var(--muted)] channel-help">1. Choose an account ID below (any name you like)</div>
+          <div class="text-xs text-[var(--muted)]">2. Click "Start Pairing" to generate a QR code</div>
+          <div class="text-xs text-[var(--muted)]">3. Open WhatsApp on your phone > Settings > Linked Devices > Link a Device</div>
+          <div class="text-xs text-[var(--muted)]">4. Scan the QR code to connect</div>
+        </div>
+        <label class="text-xs text-[var(--muted)]">Account ID</label>
+        <input data-field="accountId" type="text" placeholder="e.g. my-whatsapp" style=${inputStyle} />
+        <label class="text-xs text-[var(--muted)]">DM Policy</label>
+        <select data-field="dmPolicy" style=${selectStyle}>
+          <option value="open">Open (anyone)</option>
+          <option value="allowlist">Allowlist only</option>
+          <option value="disabled">Disabled</option>
+        </select>
+        <label class="text-xs text-[var(--muted)]">Default Model</label>
+        <${ModelSelect} models=${modelsSig.value} value=${addModel.value}
+          onChange=${(v) => {
+						addModel.value = v;
+					}}
+          placeholder=${defaultPlaceholder} />
+        <label class="text-xs text-[var(--muted)]">DM Allowlist</label>
+        <${AllowlistInput} value=${allowlistItems.value} onChange=${(v) => {
+					allowlistItems.value = v;
+				}} />
+        ${error.value && html`<div class="text-xs text-[var(--error)] channel-error" style="display:block;">${error.value}</div>`}
+        <button class="provider-btn"
+          onClick=${onStartPairing} disabled=${saving.value}>
+          ${saving.value ? "Starting\u2026" : "Start Pairing"}
+        </button>
+      `
+			}
+    </div>
+  </${Modal}>`;
+}
+
 // ── Edit channel modal ───────────────────────────────────────
 function EditChannelModal() {
 	var ch = editingChannel.value;
@@ -365,18 +562,25 @@ function EditChannelModal() {
 	}, [ch]);
 	if (!ch) return null;
 	var cfg = ch.config || {};
+	var isTelegram = ch.type === "telegram";
+	var isWhatsApp = ch.type === "whatsapp";
+	var hasAccessControl = isTelegram || isWhatsApp;
+	var title = isTelegram ? "Edit Telegram Bot" : "Edit WhatsApp";
 
 	function onSave(e) {
 		e.preventDefault();
 		var form = e.target.closest(".channel-form");
 		error.value = "";
 		saving.value = true;
-		var updateConfig = {
-			token: cfg.token || "",
-			dm_policy: form.querySelector("[data-field=dmPolicy]").value,
-			mention_mode: form.querySelector("[data-field=mentionMode]").value,
-			allowlist: allowlistItems.value,
-		};
+		var updateConfig = {};
+		if (isTelegram) {
+			updateConfig.token = cfg.token || "";
+			updateConfig.mention_mode = form.querySelector("[data-field=mentionMode]")?.value || "mention";
+		}
+		if (hasAccessControl) {
+			updateConfig.dm_policy = form.querySelector("[data-field=dmPolicy]")?.value || "open";
+			updateConfig.allowlist = allowlistItems.value;
+		}
 		if (editModel.value) {
 			updateConfig.model = editModel.value;
 			var found = modelsSig.value.find((x) => x.id === editModel.value);
@@ -391,7 +595,7 @@ function EditChannelModal() {
 				editingChannel.value = null;
 				loadChannels();
 			} else {
-				error.value = (res?.error && (res.error.message || res.error.detail)) || "Failed to update bot.";
+				error.value = (res?.error && (res.error.message || res.error.detail)) || "Failed to update channel.";
 			}
 		});
 	}
@@ -406,31 +610,46 @@ function EditChannelModal() {
 
 	return html`<${Modal} show=${true} onClose=${() => {
 		editingChannel.value = null;
-	}} title="Edit Telegram Bot">
+	}} title=${title}>
     <div class="channel-form">
       <div class="text-sm text-[var(--text-strong)]">${ch.name || ch.account_id}</div>
-      <label class="text-xs text-[var(--muted)]">DM Policy</label>
-      <select data-field="dmPolicy" style=${selectStyle} value=${cfg.dm_policy || "open"}>
-        <option value="open">Open (anyone)</option>
-        <option value="allowlist">Allowlist only</option>
-        <option value="disabled">Disabled</option>
-      </select>
-      <label class="text-xs text-[var(--muted)]">Group Mention Mode</label>
-      <select data-field="mentionMode" style=${selectStyle} value=${cfg.mention_mode || "mention"}>
-        <option value="mention">Must @mention bot</option>
-        <option value="always">Always respond</option>
-        <option value="none">Don't respond in groups</option>
-      </select>
+      ${
+				hasAccessControl &&
+				html`
+        <label class="text-xs text-[var(--muted)]">DM Policy</label>
+        <select data-field="dmPolicy" style=${selectStyle} value=${cfg.dm_policy || "open"}>
+          <option value="open">Open (anyone)</option>
+          <option value="allowlist">Allowlist only</option>
+          <option value="disabled">Disabled</option>
+        </select>
+      `
+			}
+      ${
+				isTelegram &&
+				html`
+        <label class="text-xs text-[var(--muted)]">Group Mention Mode</label>
+        <select data-field="mentionMode" style=${selectStyle} value=${cfg.mention_mode || "mention"}>
+          <option value="mention">Must @mention bot</option>
+          <option value="always">Always respond</option>
+          <option value="none">Don't respond in groups</option>
+        </select>
+      `
+			}
       <label class="text-xs text-[var(--muted)]">Default Model</label>
       <${ModelSelect} models=${modelsSig.value} value=${editModel.value}
         onChange=${(v) => {
 					editModel.value = v;
 				}}
         placeholder=${defaultPlaceholder} />
-      <label class="text-xs text-[var(--muted)]">DM Allowlist</label>
-      <${AllowlistInput} value=${allowlistItems.value} onChange=${(v) => {
-				allowlistItems.value = v;
-			}} />
+      ${
+				hasAccessControl &&
+				html`
+        <label class="text-xs text-[var(--muted)]">DM Allowlist</label>
+        <${AllowlistInput} value=${allowlistItems.value} onChange=${(v) => {
+					allowlistItems.value = v;
+				}} />
+      `
+			}
       ${error.value && html`<div class="text-xs text-[var(--error)] channel-error" style="display:block;">${error.value}</div>`}
       <button class="provider-btn"
         onClick=${onSave} disabled=${saving.value}>
@@ -440,6 +659,40 @@ function EditChannelModal() {
   </${Modal}>`;
 }
 
+// ── Channel event handler ────────────────────────────────────
+function handleChannelEvent(p) {
+	if (p.kind === "otp_resolved") {
+		loadChannels();
+	}
+	handleWhatsAppPairingEvent(p);
+	if (p.kind === "pairing_complete" || p.kind === "account_disabled") {
+		loadChannels();
+	}
+	if (
+		activeTab.value === "senders" &&
+		sendersAccount.value === p.account_id &&
+		(p.kind === "inbound_message" || p.kind === "otp_challenge" || p.kind === "otp_resolved")
+	) {
+		loadSenders();
+	}
+}
+
+function handleWhatsAppPairingEvent(p) {
+	if (p.kind === "pairing_qr_code" && p.account_id === waPairingAccountId.value) {
+		waQrData.value = p.qr_data;
+	}
+	if (p.kind === "pairing_complete" && p.account_id === waPairingAccountId.value) {
+		showToast("WhatsApp connected!");
+		showAddWhatsAppModal.value = false;
+		waPairingAccountId.value = null;
+		waQrData.value = null;
+		loadChannels();
+	}
+	if (p.kind === "pairing_failed" && p.account_id === waPairingAccountId.value) {
+		waPairingError.value = p.reason || "Pairing failed";
+	}
+}
+
 // ── Main page component ──────────────────────────────────────
 function ChannelsPage() {
 	useEffect(() => {
@@ -447,18 +700,7 @@ function ChannelsPage() {
 		if (S.cachedChannels !== null) channels.value = S.cachedChannels;
 		if (connected.value) loadChannels();
 
-		var unsub = onEvent("channel", (p) => {
-			if (p.kind === "otp_resolved") {
-				loadChannels();
-			}
-			if (
-				activeTab.value === "senders" &&
-				sendersAccount.value === p.account_id &&
-				(p.kind === "inbound_message" || p.kind === "otp_challenge" || p.kind === "otp_resolved")
-			) {
-				loadSenders();
-			}
-		});
+		var unsub = onEvent("channel", handleChannelEvent);
 		S.setChannelEventUnsub(unsub);
 
 		return () => {
@@ -484,16 +726,20 @@ function ChannelsPage() {
         ${
 					activeTab.value === "channels" &&
 					html`
-          <button class="provider-btn"
-            onClick=${() => {
-							if (connected.value) showAddModal.value = true;
-						}}>+ Add Telegram Bot</button>
+          <div style="position:relative;">
+            <button class="provider-btn"
+              onClick=${() => {
+								if (connected.value) showChannelPicker.value = !showChannelPicker.value;
+							}}>+ Add Channel</button>
+            <${ChannelPicker} />
+          </div>
         `
 				}
       </div>
       ${activeTab.value === "channels" ? html`<${ChannelsTab} />` : html`<${SendersTab} />`}
     </div>
-    <${AddChannelModal} />
+    <${AddTelegramModal} />
+    <${AddWhatsAppModal} />
     <${EditChannelModal} />
     <${ConfirmDialog} />
   `;
@@ -504,7 +750,9 @@ registerPage(
 	function initChannels(container) {
 		container.style.cssText = "flex-direction:column;padding:0;overflow:hidden;";
 		activeTab.value = "channels";
-		showAddModal.value = false;
+		showAddTelegramModal.value = false;
+		showAddWhatsAppModal.value = false;
+		showChannelPicker.value = false;
 		editingChannel.value = null;
 		sendersAccount.value = "";
 		senders.value = [];

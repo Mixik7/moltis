@@ -61,11 +61,12 @@ tracing-subscriber = { workspace = true }
 tempfile = { workspace = true }
 
 [features]
-default            = ["push-notifications", "tailscale", "tls", "voice"]
+default            = ["push-notifications", "tailscale", "tls", "voice", "whatsapp"]
 push-notifications = ["moltis-gateway/push-notifications"]
 tailscale          = ["moltis-gateway/tailscale"]
 tls                = ["moltis-gateway/tls"]
 voice              = ["moltis-gateway/voice"]
+whatsapp           = ["moltis-gateway/whatsapp"]
 
 [lints]
 workspace = true

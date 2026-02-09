@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **WhatsApp channel support**: Add WhatsApp as a second messaging channel via
+  the `whatsapp-rust` crate. Supports QR code pairing through WhatsApp Linked
+  Devices, inbound text/slash-command handling, outbound text replies, typing
+  indicators, and real-time pairing events over WebSocket. Gated behind the
+  `whatsapp` cargo feature (enabled by default).
+- **Multi-channel architecture**: Refactored `LiveChannelService` from
+  Telegram-only to a multi-channel registry with concrete plugin fields behind
+  feature flags. Added `MultiChannelOutbound` for routing outbound messages by
+  account type.
+- **WhatsApp Web UI**: Channel type picker, QR code pairing modal, and
+  WhatsApp-specific channel card/edit views in the Channels settings page.
+- **New crate `moltis-whatsapp`**: Pure Rust WhatsApp client plugin with
+  in-memory Signal Protocol store, connection lifecycle management, event
+  handlers, and outbound adapter.
+- **WhatsApp session persistence**: Replace in-memory store with sled-backed
+  persistent storage so Signal Protocol state (keys, sessions, device info)
+  survives restarts. One sled database per account at
+  `~/.moltis/whatsapp/<account_id>/`. No more re-scanning QR codes after
+  each restart.
+- **WhatsApp access control**: DM and group access policies (Open, Allowlist,
+  Disabled), per-account allowlists, and OTP self-approval flow — matching
+  the Telegram channel's access control model. Includes gateway integration
+  for sender approve/deny and web UI for configuring policies.
+- **WhatsApp media handling**: Support for inbound image, voice/audio, video,
+  document, and location messages. Images are downloaded and optimized for
+  LLM consumption via `moltis-media`. Voice messages are transcribed via STT
+  when available. Video thumbnails are sent as image attachments. Documents
+  dispatch caption and metadata. Locations resolve pending tool requests or
+  dispatch coordinates to the LLM.
+- **WhatsApp self-chat support**: Automatically detect and process messages sent
+  to yourself via WhatsApp's "Message Yourself" feature, without requiring a
+  separate phone number. Self-chat messages bypass access control (the account
+  owner is always authorized). Dual loop prevention: sent-message-ID tracking
+  in a bounded ring buffer, plus an invisible Unicode watermark (ZWJ/ZWNJ
+  sequence) appended to all bot-sent messages as a secondary check.
+- **WhatsApp documentation**: Added `docs/src/whatsapp.md` covering setup (CLI
+  and Web UI), configuration reference, access control, session persistence,
+  self-chat, media handling, and troubleshooting.
+
 ## [0.3.7] - 2026-02-09
 
 ### Fixed

@@ -45,8 +45,8 @@ cargo install moltis --git https://github.com/moltis-org/moltis
 - **Streaming responses** — real-time token streaming for a responsive user
   experience, including when tools are enabled (tool calls stream argument
   deltas as they arrive)
-- **Communication channels** — Telegram integration with an extensible channel
-  abstraction for adding others
+- **Communication channels** — Telegram and WhatsApp integration with an
+  extensible multi-channel architecture
 - **Web gateway** — HTTP and WebSocket server with a built-in web UI
 - **Session persistence** — SQLite-backed conversation history, session
   management, and per-session run serialization to prevent history corruption
@@ -207,7 +207,7 @@ cloud relay required.
 
 ```
 ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│   Web UI    │  │  Telegram   │  │  Discord    │
+│   Web UI    │  │  Telegram   │  │  WhatsApp   │
 └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
        │                │                │
        └────────┬───────┴────────┬───────┘
@@ -477,6 +477,7 @@ Moltis is organized as a Cargo workspace with the following crates:
 | `moltis-agents` | LLM provider integrations |
 | `moltis-channels` | Communication channel abstraction |
 | `moltis-telegram` | Telegram integration |
+| `moltis-whatsapp` | WhatsApp integration |
 | `moltis-config` | Configuration management |
 | `moltis-sessions` | Session persistence |
 | `moltis-memory` | Embeddings-based knowledge base |

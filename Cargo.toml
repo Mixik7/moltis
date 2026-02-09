@@ -26,6 +26,7 @@ members = [
   "crates/telegram",
   "crates/tools",
   "crates/voice",
+  "crates/whatsapp",
 ]
 resolver = "2"
 
@@ -94,8 +95,19 @@ open         = "5.3"
 rand         = "0.9"
 secrecy      = { features = ["serde"], version = "0.8" }
 sha2         = "0.10"
+sled         = "0.34"
 sysinfo      = "0.34"
 teloxide     = { features = ["macros"], version = "0.13" }
+# WhatsApp (sqlite-storage disabled to avoid libsqlite3-sys conflict with sqlx;
+# re-enable once sqlx 0.9 stabilises).
+wacore                         = "0.2"
+wacore-binary                  = "0.2"
+waproto                        = "0.2"
+whatsapp-rust                  = { default-features = false, features = ["tokio-native", "tokio-transport", "ureq-client"], version = "0.2" }
+whatsapp-rust-tokio-transport  = "0.2"
+whatsapp-rust-ureq-http-client = "0.2"
+# QR code rendering
+qrcode = "0.14"
 # TLS / certificate generation
 axum-server    = { features = ["tls-rustls"], version = "0.7" }
 rcgen          = "0.13"
@@ -126,7 +138,7 @@ image          = { default-features = false, features = ["jpeg", "png", "webp"],
 pulldown-cmark = { default-features = false, version = "0.12" }
 # Filesystem / archiving
 chrono                = "0.4"
-chrono-tz             = { version = "0.10", features = ["serde"] }
+chrono-tz             = { features = ["serde"], version = "0.10" }
 cron                  = "0.13"
 dirs-next             = "2"
 flate2                = "1"
@@ -163,3 +175,4 @@ moltis-skills     = { path = "crates/skills" }
 moltis-telegram   = { path = "crates/telegram" }
 moltis-tools      = { path = "crates/tools" }
 moltis-voice      = { path = "crates/voice" }
+moltis-whatsapp   = { path = "crates/whatsapp" }

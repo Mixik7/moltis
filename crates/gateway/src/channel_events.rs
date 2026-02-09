@@ -139,7 +139,10 @@ impl ChannelEventSink for GatewayChannelEventSink {
                         .await;
                     let n = existing.len() + 1;
                     let _ = session_meta
-                        .upsert(&session_key, Some(format!("Telegram {n}")))
+                        .upsert(
+                            &session_key,
+                            Some(format!("{} {n}", reply_to.channel_type.display_name())),
+                        )
                         .await;
                 }
                 session_meta
@@ -591,7 +594,10 @@ impl ChannelEventSink for GatewayChannelEventSink {
                     .await;
                 let n = existing.len() + 1;
                 let _ = session_meta
-                    .upsert(&session_key, Some(format!("Telegram {n}")))
+                    .upsert(
+                        &session_key,
+                        Some(format!("{} {n}", reply_to.channel_type.display_name())),
+                    )
                     .await;
             }
             session_meta
@@ -771,7 +777,10 @@ impl ChannelEventSink for GatewayChannelEventSink {
 
                 // Create the new session entry with channel binding.
                 session_metadata
-                    .upsert(&new_key, Some(format!("Telegram {n}")))
+                    .upsert(
+                        &new_key,
+                        Some(format!("{} {n}", reply_to.channel_type.display_name())),
+                    )
                     .await
                     .map_err(|e| anyhow!("failed to create session: {e}"))?;
                 session_metadata

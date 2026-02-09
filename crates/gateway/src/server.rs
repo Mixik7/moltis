@@ -29,7 +29,7 @@ use {
 #[cfg(feature = "web-ui")]
 use axum::{extract::Path, http::StatusCode};
 
-use {moltis_channels::ChannelPlugin, moltis_protocol::TICK_INTERVAL_MS};
+use moltis_protocol::TICK_INTERVAL_MS;
 
 use moltis_agents::providers::ProviderRegistry;
 
@@ -1558,9 +1558,9 @@ pub async fn start_gateway(
 
     // Session service is wired after hook registry is built (below).
 
-    // Wire channel store and Telegram channel service.
+    // Wire channel store and multi-channel service.
     {
-        use moltis_channels::store::ChannelStore;
+        use moltis_channels::{ChannelPlugin, store::ChannelStore};
 
         let channel_store: Arc<dyn ChannelStore> = Arc::new(
             crate::channel_store::SqliteChannelStore::new(db_pool.clone()),
@@ -1569,11 +1569,21 @@ pub async fn start_gateway(
         let channel_sink = Arc::new(crate::channel_events::GatewayChannelEventSink::new(
             Arc::clone(&deferred_state),
         ));
+
+        let mut channel_service = crate::channel::LiveChannelService::new(
+            Arc::clone(&channel_store),
+            Arc::clone(&message_log),
+            Arc::clone(&session_metadata),
+        );
+
+        // ── Telegram plugin ──────────────────────────────────────────────
         let mut tg_plugin = moltis_telegram::TelegramPlugin::new()
             .with_message_log(Arc::clone(&message_log))
-            .with_event_sink(channel_sink);
+            .with_event_sink(
+                Arc::clone(&channel_sink) as Arc<dyn moltis_channels::ChannelEventSink>
+            );
 
-        // Start channels from config file (these take precedence).
+        // Start Telegram channels from config file (these take precedence).
         let tg_accounts = &config.channels.telegram;
         let mut started: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (account_id, account_config) in tg_accounts {
@@ -1587,7 +1597,40 @@ pub async fn start_gateway(
             }
         }
 
-        // Load persisted channels that weren't in the config file.
+        let tg_outbound = tg_plugin.shared_outbound();
+
+        // ── WhatsApp plugin ──────────────────────────────────────────────
+        #[cfg(feature = "whatsapp")]
+        let wa_outbound = {
+            let wa_data_dir = data_dir.join("whatsapp");
+            if let Err(e) = std::fs::create_dir_all(&wa_data_dir) {
+                tracing::warn!("failed to create whatsapp data dir: {e}");
+            }
+            let mut wa_plugin = moltis_whatsapp::WhatsAppPlugin::new(wa_data_dir)
+                .with_message_log(Arc::clone(&message_log))
+                .with_event_sink(
+                    Arc::clone(&channel_sink) as Arc<dyn moltis_channels::ChannelEventSink>
+                );
+
+            // Start WhatsApp channels from config file.
+            let wa_accounts = &config.channels.whatsapp;
+            for (account_id, account_config) in wa_accounts {
+                if let Err(e) = wa_plugin
+                    .start_account(account_id, account_config.clone())
+                    .await
+                {
+                    tracing::warn!(account_id, "failed to start whatsapp account: {e}");
+                } else {
+                    started.insert(account_id.clone());
+                }
+            }
+
+            let wa_ob = wa_plugin.shared_outbound();
+            channel_service.register_whatsapp(wa_plugin);
+            wa_ob
+        };
+
+        // ── Load persisted channels from DB ──────────────────────────────
         match channel_store.list().await {
             Ok(stored) => {
                 info!("{} stored channel(s) found in database", stored.len());
@@ -1604,13 +1647,34 @@ pub async fn start_gateway(
                         channel_type = ch.channel_type,
                         "starting stored channel"
                     );
-                    if let Err(e) = tg_plugin.start_account(&ch.account_id, ch.config).await {
-                        tracing::warn!(
-                            account_id = ch.account_id,
-                            "failed to start stored telegram account: {e}"
-                        );
-                    } else {
-                        started.insert(ch.account_id);
+                    match ch.channel_type.as_str() {
+                        "telegram" => {
+                            if let Err(e) = tg_plugin.start_account(&ch.account_id, ch.config).await
+                            {
+                                tracing::warn!(
+                                    account_id = ch.account_id,
+                                    "failed to start stored telegram account: {e}"
+                                );
+                            } else {
+                                started.insert(ch.account_id);
+                            }
+                        },
+                        #[cfg(feature = "whatsapp")]
+                        "whatsapp" => {
+                            // WhatsApp stored channels are started via the registered plugin
+                            // through the channel service add() method at runtime.
+                            tracing::info!(
+                                account_id = ch.account_id,
+                                "whatsapp stored channel will be started via service"
+                            );
+                        },
+                        other => {
+                            tracing::warn!(
+                                account_id = ch.account_id,
+                                channel_type = other,
+                                "unknown stored channel type, skipping"
+                            );
+                        },
                     }
                 }
             },
@@ -1620,19 +1684,23 @@ pub async fn start_gateway(
         }
 
         if !started.is_empty() {
-            info!("{} telegram account(s) started", started.len());
+            info!("{} channel account(s) started", started.len());
         }
 
-        // Grab shared outbound before moving tg_plugin into the channel service.
-        let tg_outbound = tg_plugin.shared_outbound();
-        services = services.with_channel_outbound(tg_outbound);
+        // Register Telegram plugin (must happen after starting accounts,
+        // before moving tg_plugin).
+        channel_service.register_telegram(tg_plugin);
 
-        services.channel = Arc::new(crate::channel::LiveChannelService::new(
-            tg_plugin,
-            channel_store,
-            Arc::clone(&message_log),
-            Arc::clone(&session_metadata),
-        ));
+        // Build multi-channel outbound.
+        let multi_outbound =
+            crate::channel::MultiChannelOutbound::new(channel_service.account_types())
+                .with_telegram(tg_outbound);
+
+        #[cfg(feature = "whatsapp")]
+        let multi_outbound = multi_outbound.with_whatsapp(wa_outbound);
+
+        services = services.with_channel_outbound(Arc::new(multi_outbound));
+        services.channel = Arc::new(channel_service);
     }
 
     services = services.with_session_metadata(Arc::clone(&session_metadata));

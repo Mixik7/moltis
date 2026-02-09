@@ -22,6 +22,7 @@
 - [Local LLMs](local-llm.md)
 - [Sandbox](sandbox.md)
 - [Voice](voice.md)
+- [WhatsApp](whatsapp.md)
 - [Browser Automation](browser-automation.md)
 - [Session State](session-state.md)
 - [Session Branching](session-branching.md)
