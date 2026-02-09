@@ -4240,7 +4240,7 @@ async fn deliver_channel_replies_to_targets(
                 | moltis_channels::ChannelType::WhatsappWeb => {
                     // WhatsApp channels currently only support text replies
                     if let Err(e) = outbound
-                        .send_text(&target.account_id, &target.chat_id, &text)
+                        .send_text(&target.account_id, &target.chat_id, &text, None)
                         .await
                     {
                         warn!(

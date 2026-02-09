@@ -462,6 +462,7 @@ fn handle_sidecar_message(
                     channel_type: ChannelType::WhatsappWeb,
                     account_id: account_id.clone(),
                     chat_id: chat_jid,
+                    message_id: None,
                 };
                 let meta = ChannelMessageMeta {
                     channel_type: ChannelType::WhatsappWeb,

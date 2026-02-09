@@ -201,6 +201,7 @@ pub async fn process_webhook(
                         channel_type: ChannelType::Whatsapp,
                         account_id: account_id.to_string(),
                         chat_id: peer_id.clone(),
+                        message_id: None,
                     };
 
                     // Intercept slash commands.
@@ -227,7 +228,7 @@ pub async fn process_webhook(
                             };
                             if let Some(outbound) = outbound
                                 && let Err(e) = outbound
-                                    .send_text(account_id, &reply_target.chat_id, &response)
+                                    .send_text(account_id, &reply_target.chat_id, &response, None)
                                     .await
                             {
                                 warn!(account_id, "failed to send command response: {e}");

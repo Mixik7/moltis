@@ -70,7 +70,13 @@ impl WhatsAppOutbound {
 
 #[async_trait]
 impl ChannelOutbound for WhatsAppOutbound {
-    async fn send_text(&self, account_id: &str, to: &str, text: &str) -> Result<()> {
+    async fn send_text(
+        &self,
+        account_id: &str,
+        to: &str,
+        text: &str,
+        _reply_to: Option<&str>,
+    ) -> Result<()> {
         self.send_text_internal(account_id, to, text).await
     }
 
@@ -79,7 +85,13 @@ impl ChannelOutbound for WhatsAppOutbound {
         Ok(())
     }
 
-    async fn send_media(&self, account_id: &str, to: &str, payload: &ReplyPayload) -> Result<()> {
+    async fn send_media(
+        &self,
+        account_id: &str,
+        to: &str,
+        payload: &ReplyPayload,
+        _reply_to: Option<&str>,
+    ) -> Result<()> {
         let (config, client) = {
             let accounts = self.accounts.read().unwrap();
             let state = accounts

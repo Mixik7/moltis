@@ -39,7 +39,13 @@ impl WhatsAppOutbound {
 
 #[async_trait]
 impl ChannelOutbound for WhatsAppOutbound {
-    async fn send_text(&self, account_id: &str, to: &str, text: &str) -> Result<()> {
+    async fn send_text(
+        &self,
+        account_id: &str,
+        to: &str,
+        text: &str,
+        _reply_to: Option<&str>,
+    ) -> Result<()> {
         let request_id = Uuid::new_v4().to_string();
         debug!(account_id, to, request_id, "sending text message");
 
@@ -62,7 +68,13 @@ impl ChannelOutbound for WhatsAppOutbound {
         .await
     }
 
-    async fn send_media(&self, account_id: &str, to: &str, payload: &ReplyPayload) -> Result<()> {
+    async fn send_media(
+        &self,
+        account_id: &str,
+        to: &str,
+        payload: &ReplyPayload,
+        _reply_to: Option<&str>,
+    ) -> Result<()> {
         if let Some(ref media) = payload.media {
             let request_id = Uuid::new_v4().to_string();
             let media_type = if media.mime_type.starts_with("image/") {
@@ -94,7 +106,7 @@ impl ChannelOutbound for WhatsAppOutbound {
             })
             .await
         } else if !payload.text.is_empty() {
-            self.send_text(account_id, to, &payload.text).await
+            self.send_text(account_id, to, &payload.text, None).await
         } else {
             Ok(())
         }
