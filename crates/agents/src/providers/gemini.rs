@@ -442,6 +442,7 @@ impl LlmProvider for GeminiProvider {
             output_tokens: resp["usageMetadata"]["candidatesTokenCount"]
                 .as_u64()
                 .unwrap_or(0) as u32,
+            ..Default::default()
         };
 
         Ok(CompletionResponse {
@@ -553,7 +554,7 @@ impl LlmProvider for GeminiProvider {
                             // Check for finish reason
                             if let Some(finish_reason) = evt["candidates"][0]["finishReason"].as_str() {
                                 if finish_reason == "STOP" || finish_reason == "MAX_TOKENS" {
-                                    yield StreamEvent::Done(Usage { input_tokens, output_tokens });
+                                    yield StreamEvent::Done(Usage { input_tokens, output_tokens, ..Default::default() });
                                     return;
                                 }
                             }
@@ -563,7 +564,7 @@ impl LlmProvider for GeminiProvider {
             }
 
             // If we reach here without a STOP, still emit Done with what we have
-            yield StreamEvent::Done(Usage { input_tokens, output_tokens });
+            yield StreamEvent::Done(Usage { input_tokens, output_tokens, ..Default::default() });
         })
     }
 }

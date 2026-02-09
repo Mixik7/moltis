@@ -1788,7 +1788,8 @@ mod tests {
             .filter(|m| m.provider == "gemini")
             .collect();
         assert_eq!(gemini_models.len(), 1);
-        assert_eq!(gemini_models[0].id, "gemini-1.5-pro");
+        // Models are now namespaced with provider prefix
+        assert_eq!(gemini_models[0].id, "gemini::gemini-1.5-pro");
     }
 
     #[test]

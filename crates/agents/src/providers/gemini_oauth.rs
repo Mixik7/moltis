@@ -558,6 +558,7 @@ impl LlmProvider for GeminiOAuthProvider {
             output_tokens: resp["usageMetadata"]["candidatesTokenCount"]
                 .as_u64()
                 .unwrap_or(0) as u32,
+            ..Default::default()
         };
 
         Ok(CompletionResponse {
@@ -672,7 +673,7 @@ impl LlmProvider for GeminiOAuthProvider {
 
                             if let Some(finish_reason) = evt["candidates"][0]["finishReason"].as_str() {
                                 if finish_reason == "STOP" || finish_reason == "MAX_TOKENS" {
-                                    yield StreamEvent::Done(Usage { input_tokens, output_tokens });
+                                    yield StreamEvent::Done(Usage { input_tokens, output_tokens, ..Default::default() });
                                     return;
                                 }
                             }
@@ -681,7 +682,7 @@ impl LlmProvider for GeminiOAuthProvider {
                 }
             }
 
-            yield StreamEvent::Done(Usage { input_tokens, output_tokens });
+            yield StreamEvent::Done(Usage { input_tokens, output_tokens, ..Default::default() });
         })
     }
 }
