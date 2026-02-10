@@ -1370,30 +1370,42 @@ timeout_ms = 30000
 <li>Ensure QMD has indexed your collections: <code>qmd stats</code></li>
 </ol>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="hooks-1"><a class="header" href="#hooks-1">Hooks</a></h1>
-<p>Hooks let you observe, modify, or block actions at key points in the agent lifecycle. Use them for auditing, policy enforcement, notifications, and custom integrations.</p>
+<p>Hooks let you observe, modify, or block actions at key points in the agent lifecycle. Use them for auditing, policy enforcement, prompt injection filtering, notifications, and custom integrations.</p>
 <h2 id="how-hooks-work"><a class="header" href="#how-hooks-work">How Hooks Work</a></h2>
-<pre><code>┌─────────────────────────────────────────────────────────┐
-│                      Agent Loop                         │
-│                                                         │
-│  User Message → BeforeToolCall → Tool Execution         │
-│                       │                 │               │
-│                       ▼                 ▼               │
-│                 [Your Hook]      AfterToolCall          │
-│                       │                 │               │
-│                 modify/block      [Your Hook]           │
-│                       │                 │               │
-│                       ▼                 ▼               │
-│                   Continue → Response → MessageSent     │
-└─────────────────────────────────────────────────────────┘
+<pre><code>┌──────────────────────────────────────────────────────────────┐
+│                        Agent Loop                            │
+│                                                              │
+│  User Message ─→ BeforeLLMCall ─→ LLM Provider              │
+│                       │                 │                    │
+│                  modify/block      AfterLLMCall              │
+│                                         │                    │
+│                                    modify/block              │
+│                                         │                    │
+│                                         ▼                    │
+│                                  BeforeToolCall              │
+│                                         │                    │
+│                                    modify/block              │
+│                                         │                    │
+│                                    Tool Execution            │
+│                                         │                    │
+│                                    AfterToolCall             │
+│                                         │                    │
+│                                         ▼                    │
+│                              (loop continues or)             │
+│                             Response → MessageSent           │
+└──────────────────────────────────────────────────────────────┘
 </code></pre>
 <h2 id="event-types"><a class="header" href="#event-types">Event Types</a></h2>
 <h3 id="modifying-events-sequential"><a class="header" href="#modifying-events-sequential">Modifying Events (Sequential)</a></h3>
 <p>These events run hooks sequentially. Hooks can modify the payload or block the action.</p>
 <div class="table-wrapper"><table><thead><tr><th>Event</th><th>Description</th><th>Can Modify</th><th>Can Block</th></tr></thead><tbody>
-<tr><td><code>BeforeToolCall</code></td><td>Before a tool executes</td><td>✅</td><td>✅</td></tr>
-<tr><td><code>BeforeCompaction</code></td><td>Before context compaction</td><td>✅</td><td>✅</td></tr>
-<tr><td><code>MessageSending</code></td><td>Before sending a response</td><td>✅</td><td>✅</td></tr>
-<tr><td><code>BeforeAgentStart</code></td><td>Before agent loop starts</td><td>✅</td><td>✅</td></tr>
+<tr><td><code>BeforeAgentStart</code></td><td>Before agent loop starts</td><td>yes</td><td>yes</td></tr>
+<tr><td><code>BeforeLLMCall</code></td><td>Before prompt is sent to the LLM provider</td><td>yes</td><td>yes</td></tr>
+<tr><td><code>AfterLLMCall</code></td><td>After LLM response, before tool execution</td><td>yes</td><td>yes</td></tr>
+<tr><td><code>BeforeToolCall</code></td><td>Before a tool executes</td><td>yes</td><td>yes</td></tr>
+<tr><td><code>BeforeCompaction</code></td><td>Before context compaction</td><td>yes</td><td>yes</td></tr>
+<tr><td><code>MessageSending</code></td><td>Before sending a response</td><td>yes</td><td>yes</td></tr>
+<tr><td><code>ToolResultPersist</code></td><td>When a tool result is persisted</td><td>yes</td><td>yes</td></tr>
 </tbody></table>
 </div>
 <h3 id="read-only-events-parallel"><a class="header" href="#read-only-events-parallel">Read-Only Events (Parallel)</a></h3>
@@ -1401,17 +1413,96 @@ timeout_ms = 30000
 <div class="table-wrapper"><table><thead><tr><th>Event</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>AfterToolCall</code></td><td>After a tool completes</td></tr>
 <tr><td><code>AfterCompaction</code></td><td>After context is compacted</td></tr>
+<tr><td><code>AgentEnd</code></td><td>When agent loop completes</td></tr>
 <tr><td><code>MessageReceived</code></td><td>When a user message arrives</td></tr>
 <tr><td><code>MessageSent</code></td><td>After response is delivered</td></tr>
-<tr><td><code>AgentEnd</code></td><td>When agent loop completes</td></tr>
 <tr><td><code>SessionStart</code></td><td>When a new session begins</td></tr>
 <tr><td><code>SessionEnd</code></td><td>When a session ends</td></tr>
-<tr><td><code>ToolResultPersist</code></td><td>When tool result is saved</td></tr>
 <tr><td><code>GatewayStart</code></td><td>When Moltis starts</td></tr>
 <tr><td><code>GatewayStop</code></td><td>When Moltis shuts down</td></tr>
 <tr><td><code>Command</code></td><td>When a slash command is used</td></tr>
 </tbody></table>
 </div>
+<h2 id="prompt-injection-filtering"><a class="header" href="#prompt-injection-filtering">Prompt Injection Filtering</a></h2>
+<p>The <code>BeforeLLMCall</code> and <code>AfterLLMCall</code> hooks provide filtering points for prompt injection defense.</p>
+<h3 id="beforellmcall"><a class="header" href="#beforellmcall">BeforeLLMCall</a></h3>
+<p>Fires before each LLM API call. The payload includes the full message array, provider name, model ID, and iteration count. Use it to:</p>
+<ul>
+<li>Scan prompts for injection patterns before they reach the LLM</li>
+<li>Redact PII or sensitive data from the conversation</li>
+<li>Add safety prefixes to system prompts</li>
+<li>Block requests that match known attack patterns</li>
+</ul>
+<p><strong>Payload fields:</strong></p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>session_key</code></td><td>string</td><td>Session identifier</td></tr>
+<tr><td><code>provider</code></td><td>string</td><td>Provider name (e.g. “openai”, “anthropic”)</td></tr>
+<tr><td><code>model</code></td><td>string</td><td>Model ID (e.g. “gpt-4o”, “claude-sonnet-4-20250514”)</td></tr>
+<tr><td><code>messages</code></td><td>array</td><td>Serialized message array (OpenAI format)</td></tr>
+<tr><td><code>tool_count</code></td><td>number</td><td>Number of tool schemas sent to the LLM</td></tr>
+<tr><td><code>iteration</code></td><td>number</td><td>1-based loop iteration</td></tr>
+</tbody></table>
+</div>
+<h3 id="afterllmcall"><a class="header" href="#afterllmcall">AfterLLMCall</a></h3>
+<p>Fires after the LLM response is received but before tool calls execute. For streaming responses, this fires after the full response is accumulated (text has already been streamed to the UI) but blocking still prevents tool execution.</p>
+<p><strong>Payload fields:</strong></p>
+<div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>session_key</code></td><td>string</td><td>Session identifier</td></tr>
+<tr><td><code>provider</code></td><td>string</td><td>Provider name</td></tr>
+<tr><td><code>model</code></td><td>string</td><td>Model ID</td></tr>
+<tr><td><code>text</code></td><td>string/null</td><td>LLM response text</td></tr>
+<tr><td><code>tool_calls</code></td><td>array</td><td>Tool calls requested by the LLM</td></tr>
+<tr><td><code>input_tokens</code></td><td>number</td><td>Tokens consumed by the prompt</td></tr>
+<tr><td><code>output_tokens</code></td><td>number</td><td>Tokens in the response</td></tr>
+<tr><td><code>iteration</code></td><td>number</td><td>1-based loop iteration</td></tr>
+</tbody></table>
+</div>
+<h3 id="example-block-suspicious-tool-calls"><a class="header" href="#example-block-suspicious-tool-calls">Example: Block Suspicious Tool Calls</a></h3>
+<pre><code class="language-bash">#!/bin/bash
+# filter-injection.sh — subscribe to AfterLLMCall
+payload=$(cat)
+event=$(echo "$payload" | jq -r '.event')
+
+if [ "$event" = "AfterLLMCall" ]; then
+    # Check if tool calls contain suspicious patterns
+    tool_names=$(echo "$payload" | jq -r '.tool_calls[].name')
+
+    for name in $tool_names; do
+        # Block unexpected tool calls that might come from injection
+        case "$name" in
+            exec|bash|shell)
+                text=$(echo "$payload" | jq -r '.text // ""')
+                if echo "$text" | grep -qi "ignore previous\|disregard\|new instructions"; then
+                    echo "Blocked suspicious tool call after potential injection" &gt;&amp;2
+                    exit 1
+                fi
+                ;;
+        esac
+    done
+fi
+
+exit 0
+</code></pre>
+<h3 id="example-external-proxy-filter"><a class="header" href="#example-external-proxy-filter">Example: External Proxy Filter</a></h3>
+<pre><code class="language-bash">#!/bin/bash
+# proxy-filter.sh — subscribe to BeforeLLMCall
+payload=$(cat)
+
+# Send to an external moderation API
+result=$(echo "$payload" | curl -s -X POST \
+  -H "Content-Type: application/json" \
+  -d @- \
+  "$MODERATION_API_URL/check")
+
+# Block if the API flags it
+if echo "$result" | jq -e '.flagged' &gt; /dev/null 2&gt;&amp;1; then
+    reason=$(echo "$result" | jq -r '.reason // "content policy violation"')
+    echo "$reason" &gt;&amp;2
+    exit 1
+fi
+
+exit 0
+</code></pre>
 <h2 id="creating-a-hook"><a class="header" href="#creating-a-hook">Creating a Hook</a></h2>
 <h3 id="1-create-the-hook-directory"><a class="header" href="#1-create-the-hook-directory">1. Create the Hook Directory</a></h3>
 <pre><code class="language-bash">mkdir -p ~/.moltis/hooks/my-hook
@@ -1517,6 +1608,12 @@ command = "./hooks/audit.sh"
 events = ["BeforeToolCall", "AfterToolCall"]
 timeout = 5
 priority = 100  # Higher = runs first
+
+[[hooks]]
+name = "llm-filter"
+command = "./hooks/filter-injection.sh"
+events = ["BeforeLLMCall", "AfterLLMCall"]
+timeout = 10
 
 [[hooks]]
 name = "notify-slack"
@@ -1631,6 +1728,7 @@ exit 0
 <li><strong>Log for debugging</strong> — Write to a log file, not stdout</li>
 <li><strong>Test locally first</strong> — Pipe sample JSON through your script</li>
 <li><strong>Use jq for JSON</strong> — It’s reliable and fast for parsing</li>
+<li><strong>Layer defenses</strong> — Use <code>BeforeLLMCall</code> for input filtering and <code>AfterLLMCall</code> for output filtering</li>
 </ol>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="local-llm-support"><a class="header" href="#local-llm-support">Local LLM Support</a></h1>
 <p>Moltis can run LLM inference locally on your machine without requiring an API
@@ -4894,12 +4992,37 @@ and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semant
 <h2 id="unreleased"><a class="header" href="#unreleased">[Unreleased]</a></h2>
 <h3 id="added"><a class="header" href="#added">Added</a></h3>
 <ul>
+<li><strong><code>BeforeLLMCall</code> / <code>AfterLLMCall</code> hooks</strong>: New modifying hook events that fire
+before sending prompts to the LLM provider and after receiving responses
+(before tool execution). Enables prompt injection filtering, PII redaction,
+and response auditing via shell hooks.</li>
+<li><strong>Config template</strong>: The generated <code>moltis.toml</code> template now lists all 17
+hook events with correct PascalCase names and one-line descriptions.</li>
+<li><strong>Hook event validation</strong>: <code>moltis config check</code> now warns on unknown hook
+event names in the config file.</li>
+</ul>
+<h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
+<ul>
+<li><strong>Hooks documentation</strong>: Rewritten <code>docs/src/hooks.md</code> with complete event
+reference, corrected <code>ToolResultPersist</code> classification (modifying, not
+read-only), and new “Prompt Injection Filtering” section with examples.</li>
+</ul>
+<h3 id="security-2"><a class="header" href="#security-2">Security</a></h3>
+<ul>
+<li><strong>Content-Security-Policy header</strong>: HTML pages now include a nonce-based CSP
+header (<code>script-src 'self' 'nonce-&lt;UUID&gt;'</code>), preventing inline script
+injection (XSS defense-in-depth). The OAuth callback page also gets a
+restrictive CSP.</li>
+</ul>
+<h2 id="050---2026-02-09"><a class="header" href="#050---2026-02-09">[0.5.0] - 2026-02-09</a></h2>
+<h3 id="added-1"><a class="header" href="#added-1">Added</a></h3>
+<ul>
 <li><strong><code>moltis doctor</code> command</strong>: Comprehensive health check that validates config,
 audits security (file permissions, API keys in config), checks directory and
 database health, verifies provider readiness (API keys via config or env vars),
 inspects TLS certificates, and validates MCP server commands on PATH.</li>
 </ul>
-<h3 id="security-2"><a class="header" href="#security-2">Security</a></h3>
+<h3 id="security-3"><a class="header" href="#security-3">Security</a></h3>
 <ul>
 <li><strong>npm install –ignore-scripts</strong>: Skill dependency installation now passes
 <code>--ignore-scripts</code> to npm, preventing supply chain attacks via malicious
@@ -4915,7 +5038,7 @@ at least one scope explicitly (least-privilege by default).</li>
 fix <code>clippy::unnecessary_unwrap</code> that broke the v0.4.0 release build.</li>
 </ul>
 <h2 id="040---2026-02-09"><a class="header" href="#040---2026-02-09">[0.4.0] - 2026-02-09</a></h2>
-<h3 id="added-1"><a class="header" href="#added-1">Added</a></h3>
+<h3 id="added-2"><a class="header" href="#added-2">Added</a></h3>
 <ul>
 <li><strong>Auto-import external OAuth tokens</strong>: At startup, auto-detected provider
 tokens (e.g. Codex CLI <code>~/.codex/auth.json</code>) are imported into the central
@@ -4944,7 +5067,7 @@ Solves the “I can’t share links” problem in voice mode.</li>
 and directions, or <code>"coarse"</code> (city-level, faster) for flights, weather, and
 time zones. The LLM picks the appropriate mode based on the user’s query.</li>
 </ul>
-<h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
+<h3 id="changed-1"><a class="header" href="#changed-1">Changed</a></h3>
 <ul>
 <li>Show “No LLM Providers Connected” card instead of welcome greeting when no
 providers are configured.</li>
@@ -4976,7 +5099,7 @@ skip when no usable container runtime is available (backend = “none”).</li>
 <code>warn!</code> to <code>debug!</code> since they indicate expected “not ready yet” states.</li>
 </ul>
 <h2 id="038---2026-02-09"><a class="header" href="#038---2026-02-09">[0.3.8] - 2026-02-09</a></h2>
-<h3 id="changed-1"><a class="header" href="#changed-1">Changed</a></h3>
+<h3 id="changed-2"><a class="header" href="#changed-2">Changed</a></h3>
 <ul>
 <li><strong>Release CI parallelization</strong>: Split clippy and test into separate parallel
 jobs in the release workflow for faster feedback on GitHub-hosted runners.</li>
@@ -5015,7 +5138,7 @@ blocking <code>write()</code> in <code>SessionStore::append()</code> and <code>r
 concurrent tool-result persists wait for the file lock instead of failing
 with <code>EAGAIN</code> (OS error 35).</li>
 </ul>
-<h3 id="changed-2"><a class="header" href="#changed-2">Changed</a></h3>
+<h3 id="changed-3"><a class="header" href="#changed-3">Changed</a></h3>
 <ul>
 <li><strong>Release CI quality gates</strong>: The Build Packages workflow now runs biome,
 format, clippy, and test checks before building any packages, ensuring code
@@ -5031,7 +5154,7 @@ binding, fixing <code>get_user_location</code> failures on first Telegram messag
 <li><strong>Cargo.lock sync</strong>: Lock file now matches workspace version.</li>
 </ul>
 <h2 id="030---2026-02-08"><a class="header" href="#030---2026-02-08">[0.3.0] - 2026-02-08</a></h2>
-<h3 id="added-2"><a class="header" href="#added-2">Added</a></h3>
+<h3 id="added-3"><a class="header" href="#added-3">Added</a></h3>
 <ul>
 <li>
 <p><strong>Silent replies</strong>: The system prompt instructs the LLM to return an empty
@@ -5140,7 +5263,7 @@ client-side sequence number for ordering diagnostics.</p>
 cache-miss token counters in the metrics subsystem.</p>
 </li>
 </ul>
-<h3 id="changed-3"><a class="header" href="#changed-3">Changed</a></h3>
+<h3 id="changed-4"><a class="header" href="#changed-4">Changed</a></h3>
 <ul>
 <li><strong>Provider auto-detection observability</strong>: When no explicit provider settings are present in <code>moltis.toml</code>, startup now logs each auto-detected provider with its source (<code>env</code>, config file key, OAuth token file, provider key file, or Codex auth file). Added <code>server.http_request_logs</code> (Axum HTTP traces) and <code>server.ws_request_logs</code> (WebSocket RPC request/response traces) config options (both default <code>false</code>) for on-demand transport debugging without code changes.</li>
 <li><strong>Dynamic OpenAI Codex model catalog</strong>: OpenAI Codex providers now load model IDs from <code>https://chatgpt.com/backend-api/codex/models</code> at startup (with fallback defaults), and the gateway refreshes Codex models hourly so long-running sessions pick up newly available models (for example <code>gpt-5.3</code>) without restart.</li>
@@ -5221,12 +5344,12 @@ Rust structs instead of ad-hoc <code>serde_json::Value</code> maps.</li>
 personality bootstrapping.</li>
 </ul>
 <h2 id="029---2026-02-08"><a class="header" href="#029---2026-02-08">[0.2.9] - 2026-02-08</a></h2>
-<h3 id="added-3"><a class="header" href="#added-3">Added</a></h3>
+<h3 id="added-4"><a class="header" href="#added-4">Added</a></h3>
 <ul>
 <li><strong>Voice provider policy controls</strong>: Added provider-list allowlists so config templates and runtime voice setup can explicitly limit shown/allowed TTS and STT providers.</li>
 <li><strong>Typed voice provider metadata</strong>: Expanded voice provider metadata and preference handling to use typed flows across gateway and UI paths.</li>
 </ul>
-<h3 id="changed-4"><a class="header" href="#changed-4">Changed</a></h3>
+<h3 id="changed-5"><a class="header" href="#changed-5">Changed</a></h3>
 <ul>
 <li><strong>Reply medium preference handling</strong>: Chat now prefers the same reply medium when possible and falls back to text when a medium cannot be preserved.</li>
 </ul>
@@ -5236,7 +5359,7 @@ personality bootstrapping.</li>
 <li><strong>Voice UX polish</strong>: Improved microphone timing behavior and preserved settings scroll state in voice configuration views.</li>
 </ul>
 <h2 id="028---2026-02-07"><a class="header" href="#028---2026-02-07">[0.2.8] - 2026-02-07</a></h2>
-<h3 id="changed-5"><a class="header" href="#changed-5">Changed</a></h3>
+<h3 id="changed-6"><a class="header" href="#changed-6">Changed</a></h3>
 <ul>
 <li><strong>Unified plugins and skills into a single system</strong>: Plugins and skills were separate
 systems with duplicate code, manifests, and UI pages. They are now merged into one
@@ -5268,7 +5391,7 @@ hide <code>create_skill</code>/<code>update_skill</code> and leave only a subset
 Chat runs now use configured tool policy for runtime filtering without globally
 restricting tools based on discovered skill metadata.</li>
 </ul>
-<h3 id="added-4"><a class="header" href="#added-4">Added</a></h3>
+<h3 id="added-5"><a class="header" href="#added-5">Added</a></h3>
 <ul>
 <li>
 <p><strong>Voice Provider Management UI</strong>: Configure TTS and STT providers from Settings &gt; Voice</p>
@@ -5395,7 +5518,7 @@ Empty lists keep current behavior and show all providers.</p>
 <p><strong>Update availability banner</strong>: The web UI now checks GitHub releases hourly and shows a top banner when a newer version of moltis is available, with a direct link to the release page.</p>
 </li>
 </ul>
-<h3 id="changed-6"><a class="header" href="#changed-6">Changed</a></h3>
+<h3 id="changed-7"><a class="header" href="#changed-7">Changed</a></h3>
 <ul>
 <li><strong>Documentation safety notice</strong>: Added an upfront alpha-software warning on the docs landing page, emphasizing careful deployment, isolation, and strong auth/network controls for self-hosted AI assistants.</li>
 <li><strong>Release packaging</strong>: Derive release artifact versions from the Git tag (<code>vX.Y.Z</code>) in CI, and sync package metadata during release jobs to prevent filename/version drift.</li>
@@ -5437,7 +5560,7 @@ with vertical scrolling instead of being scaled down to fit the viewport.</li>
 <li><strong>Telegram typing indicator for long responses</strong>: Channel replies now wait for outbound delivery tasks to finish before chat completion returns, so periodic <code>typing...</code> updates continue until the Telegram message is actually sent.</li>
 <li><strong>Skills dependency install safety</strong>: <code>skills.install_dep</code> now requires explicit user confirmation and blocks host installs when sandbox mode is disabled (unless explicitly overridden in the RPC call).</li>
 </ul>
-<h3 id="security-3"><a class="header" href="#security-3">Security</a></h3>
+<h3 id="security-4"><a class="header" href="#security-4">Security</a></h3>
 <ul>
 <li><strong>Asset response hardening</strong>: Static assets now set <code>X-Content-Type-Options: nosniff</code>, and SVG responses include a restrictive <code>Content-Security-Policy</code> (<code>script-src 'none'</code>, <code>object-src 'none'</code>) to reduce stored-XSS risk if user-controlled SVGs are ever introduced.</li>
 <li><strong>Archive extraction hardening</strong>: Skills/plugin tarball installs now reject unsafe archive paths (<code>..</code>, absolute/path-prefix escapes) and reject symlink/hardlink archive entries to prevent path traversal and link-based escapes.</li>
@@ -5462,12 +5585,12 @@ with vertical scrolling instead of being scaled down to fit the viewport.</li>
 <li>Added <code>docs/src/skills-security.md</code> with third-party skills/plugin hardening guidance (trust lifecycle, provenance pinning, source-drift re-trust, risky install guards, emergency disable, and security audit logging).</li>
 </ul>
 <h2 id="0110---2026-02-06"><a class="header" href="#0110---2026-02-06">[0.1.10] - 2026-02-06</a></h2>
-<h3 id="changed-7"><a class="header" href="#changed-7">Changed</a></h3>
+<h3 id="changed-8"><a class="header" href="#changed-8">Changed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Build Docker images natively per architecture instead of QEMU emulation, then merge into multi-arch manifest</li>
 </ul>
 <h2 id="019---2026-02-06"><a class="header" href="#019---2026-02-06">[0.1.9] - 2026-02-06</a></h2>
-<h3 id="changed-8"><a class="header" href="#changed-8">Changed</a></h3>
+<h3 id="changed-9"><a class="header" href="#changed-9">Changed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Migrate all release build jobs from self-hosted to GitHub-hosted runners for full parallelism (<code>ubuntu-latest</code>, <code>ubuntu-latest-arm</code>, <code>macos-latest</code>), remove all cross-compilation toolchain steps</li>
 </ul>
@@ -5494,7 +5617,7 @@ with vertical scrolling instead of being scaled down to fit the viewport.</li>
 <li><strong>CI security</strong>: Add <code>persist-credentials: false</code> to docs workflow checkout (fixes zizmor artipacked warning)</li>
 </ul>
 <h2 id="014---2026-02-06"><a class="header" href="#014---2026-02-06">[0.1.4] - 2026-02-06</a></h2>
-<h3 id="added-5"><a class="header" href="#added-5">Added</a></h3>
+<h3 id="added-6"><a class="header" href="#added-6">Added</a></h3>
 <ul>
 <li>
 <p><strong><code>--no-tls</code> CLI flag</strong>: <code>--no-tls</code> flag and <code>MOLTIS_NO_TLS</code> environment variable to disable
@@ -5629,7 +5752,7 @@ logic.</p>
 self-extension, and the tool registry architecture.</p>
 </li>
 </ul>
-<h3 id="changed-9"><a class="header" href="#changed-9">Changed</a></h3>
+<h3 id="changed-10"><a class="header" href="#changed-10">Changed</a></h3>
 <ul>
 <li>
 <p>Memory settings UI enhanced with backend comparison and feature explanations</p>
