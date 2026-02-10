@@ -5,9 +5,7 @@ import { html } from "htm/preact";
 import { render } from "preact";
 import { useEffect } from "preact/hooks";
 import { updateNavCount } from "./nav-counts.js";
-import { registerPage } from "./router.js";
 import { sandboxInfo } from "./signals.js";
-import * as S from "./state.js";
 
 var defaultImage = signal("");
 var savingDefault = signal(false);
@@ -212,9 +210,8 @@ function SandboxBanner() {
 			html`
       <div class="${rec.level === "warn" ? "alert-warning-text" : "alert-info-text"}">
         <span class="${rec.level === "warn" ? "alert-label-warn" : "alert-label-info"}">
-          ${rec.level === "warn" ? "Warning" : "Tip"}:
-        </span>
-        ${" "}${rec.text}
+          ${rec.level === "warn" ? "Warning: " : "Tip: "}
+        </span>${rec.text}
       </div>
     `
 		}
@@ -296,7 +293,7 @@ function ImagesPage() {
     <div class="flex-1 flex flex-col min-w-0 p-4 gap-4 overflow-y-auto">
       ${
 				!sandboxRuntimeAvailable() &&
-				html`<div class="alert-warning-text"><span class="alert-label-warn">Warning:</span> ${" "}${SANDBOX_DISABLED_HINT}</div>`
+				html`<div class="alert-warning-text max-w-form"><span class="alert-label-warn">Warning: </span>${SANDBOX_DISABLED_HINT}</div>`
 			}
       <div class="flex items-center gap-3">
         <h2 class="text-lg font-medium text-[var(--text-strong)]">Sandboxes</h2>
@@ -359,7 +356,7 @@ function ImagesPage() {
         ${
 					buildWarning.value &&
 					html`<div class="alert-warning-text" style="margin-top:8px;">
-          <span class="alert-label-warn">Warning:</span>${" "}${buildWarning.value}
+          <span class="alert-label-warn">Warning: </span>${buildWarning.value}
         </div>`
 				}
         ${
@@ -373,18 +370,19 @@ function ImagesPage() {
   `;
 }
 
-registerPage(
-	"/sandboxes",
-	function initImages(container) {
-		container.style.cssText = "flex-direction:column;padding:0;overflow:hidden;";
-		images.value = [];
-		defaultImage.value = sandboxInfo.value?.default_image || "";
-		buildStatus.value = "";
-		buildWarning.value = "";
-		render(html`<${ImagesPage} />`, container);
-	},
-	function teardownImages() {
-		var container = S.$("pageContent");
-		if (container) render(null, container);
-	},
-);
+var _imagesContainer = null;
+
+export function initImages(container) {
+	_imagesContainer = container;
+	container.style.cssText = "flex-direction:column;padding:0;overflow:hidden;";
+	images.value = [];
+	defaultImage.value = sandboxInfo.value?.default_image || "";
+	buildStatus.value = "";
+	buildWarning.value = "";
+	render(html`<${ImagesPage} />`, container);
+}
+
+export function teardownImages() {
+	if (_imagesContainer) render(null, _imagesContainer);
+	_imagesContainer = null;
+}

@@ -1,6 +1,9 @@
 // ── Entry point ────────────────────────────────────────────
 
+import { html } from "htm/preact";
+import { render } from "preact";
 import prettyBytes from "pretty-bytes";
+import { SessionList } from "./components/session-list.js";
 import { onEvent } from "./events.js";
 import * as gon from "./gon.js";
 import { initMobile } from "./mobile.js";
@@ -13,6 +16,9 @@ import { mount, registerPage, sessionPath } from "./router.js";
 import { updateSandboxImageUI, updateSandboxUI } from "./sandbox.js";
 import { fetchSessions, refreshActiveSession, refreshWelcomeCardIfNeeded, renderSessionList } from "./sessions.js";
 import * as S from "./state.js";
+import { modelStore } from "./stores/model-store.js";
+import { projectStore } from "./stores/project-store.js";
+import { sessionStore } from "./stores/session-store.js";
 import { initTheme, injectMarkdownStyles } from "./theme.js";
 import { connect } from "./websocket.js";
 
@@ -20,15 +26,9 @@ import { connect } from "./websocket.js";
 import "./page-chat.js";
 import "./page-crons.js";
 import "./page-projects.js";
-import "./page-providers.js";
-import "./page-channels.js";
-import "./page-logs.js";
 import "./page-skills.js";
-import "./page-mcp.js";
-import "./page-hooks.js";
 import "./page-metrics.js";
-import "./page-settings.js";
-import "./page-images.js";
+import "./page-settings.js"; // also imports channels, providers, mcp, hooks, images, logs
 import { setHasPasskeys } from "./page-login.js";
 
 // Import side-effect modules
@@ -104,6 +104,24 @@ applyMemory(gon.get("mem"));
 gon.onChange("mem", applyMemory);
 onEvent("tick", (payload) => applyMemory(payload.mem));
 
+// Logout button — wire up click handler once.
+var logoutBtn = document.getElementById("logoutBtn");
+if (logoutBtn) {
+	logoutBtn.addEventListener("click", () => {
+		fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+			location.href = "/";
+		});
+	});
+}
+
+// Seed sandbox info from gon so the settings page can render immediately
+// without waiting for the auth-protected /api/bootstrap fetch.
+try {
+	var gonSandbox = gon.get("sandbox");
+	if (gonSandbox) S.setSandboxInfo(gonSandbox);
+} catch (_) {
+	// Non-fatal — sandbox info will arrive via bootstrap.
+}
 // Check auth status before mounting the app.
 fetch("/api/auth/status")
 	.then((r) => (r.ok ? r.json() : null))
@@ -121,6 +139,11 @@ fetch("/api/auth/status")
 		if (!auth.authenticated) {
 			mount("/login");
 			return;
+		}
+		// Show logout button when user authenticated via real credentials
+		// (not bypassed via auth_disabled or localhost-no-password).
+		if (!auth.auth_disabled && (auth.has_password || auth.has_passkeys) && logoutBtn) {
+			logoutBtn.style.display = "";
 		}
 		if (auth.auth_disabled && !auth.localhost_only) {
 			showAuthDisabledBanner();
@@ -188,7 +211,7 @@ function showBranchBanner(branch) {
 		document.getElementById("branchName").textContent = branch;
 		el.style.display = "";
 
-		// Swap favicon to red SVG variant
+		// Swap favicon to high-contrast branch SVG variant
 		document.querySelectorAll('link[rel="icon"]').forEach((link) => {
 			link.type = "image/svg+xml";
 			link.removeAttribute("sizes");
@@ -230,15 +253,20 @@ function applyIdentity(identity) {
 }
 
 function applyModels(models) {
-	S.setModels(models || []);
-	if (S.models.length === 0) return;
+	var arr = models || [];
+	modelStore.setAll(arr);
+	// Dual-write to state.js for backward compat
+	S.setModels(arr);
+	if (arr.length === 0) return;
 	var saved = localStorage.getItem("moltis-model") || "";
-	var found = S.models.find((m) => m.id === saved);
+	var found = arr.find((m) => m.id === saved);
 	if (found) {
+		modelStore.select(found.id);
 		S.setSelectedModelId(found.id);
 	} else {
-		S.setSelectedModelId(S.models[0].id);
-		localStorage.setItem("moltis-model", S.selectedModelId);
+		modelStore.select(arr[0].id);
+		S.setSelectedModelId(arr[0].id);
+		localStorage.setItem("moltis-model", modelStore.selectedModelId.value);
 	}
 }
 
@@ -250,13 +278,19 @@ function fetchBootstrap() {
 		.then((boot) => {
 			if (boot.channels) S.setCachedChannels(boot.channels.channels || boot.channels || []);
 			if (boot.sessions) {
-				S.setSessions(boot.sessions || []);
+				var bootSessions = boot.sessions || [];
+				sessionStore.setAll(bootSessions);
+				// Dual-write to state.js for backward compat
+				S.setSessions(bootSessions);
 				renderSessionList();
 			}
 			if (boot.models) applyModels(boot.models);
 			refreshWelcomeCardIfNeeded();
 			if (boot.projects) {
-				S.setProjects(boot.projects || []);
+				var bootProjects = boot.projects || [];
+				projectStore.setAll(bootProjects);
+				// Dual-write to state.js for backward compat
+				S.setProjects(bootProjects);
 				renderProjectSelect();
 				renderSessionProjectSelect();
 			}
@@ -273,6 +307,10 @@ function fetchBootstrap() {
 }
 
 function startApp() {
+	// Mount the reactive SessionList once — signals drive all re-renders.
+	var sessionListEl = S.$("sessionList");
+	if (sessionListEl) render(html`<${SessionList} />`, sessionListEl);
+
 	var path = location.pathname;
 	if (path === "/") {
 		path = preferredChatPath();

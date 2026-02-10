@@ -32,9 +32,9 @@ import {
 	fetchSessions,
 	setSessionReplying,
 	setSessionUnread,
-	switchSession,
 } from "./sessions.js";
 import * as S from "./state.js";
+import { sessionStore } from "./stores/session-store.js";
 import { connectWs, forceReconnect } from "./ws-connect.js";
 
 // ── Chat event handlers ──────────────────────────────────────
@@ -114,13 +114,20 @@ function handleChatThinkingDone(_p, isActive, isChatPage) {
 	if (isActive && isChatPage) removeThinking();
 }
 
-function handleChatVoicePending(_p, isActive, isChatPage) {
+function handleChatVoicePending(_p, isActive, isChatPage, eventSession) {
+	// Update per-session signal
+	var session = sessionStore.getByKey(eventSession);
+	if (session) session.voicePending.value = true;
 	if (!(isActive && isChatPage)) return;
+	// Dual-write to global state for backward compat
 	S.setVoicePending(true);
 	// Keep the existing thinking dots visible — no separate voice indicator.
 }
 
-function handleChatToolCallStart(p, isActive, isChatPage) {
+function handleChatToolCallStart(p, isActive, isChatPage, eventSession) {
+	// Update per-session signal
+	var session = sessionStore.getByKey(eventSession);
+	if (session) session.streamText.value = "";
 	if (!(isActive && isChatPage)) return;
 	removeThinking();
 	// Close the current streaming element so new text deltas after this tool
@@ -139,8 +146,12 @@ function handleChatToolCallStart(p, isActive, isChatPage) {
 	S.chatMsgBox.scrollTop = S.chatMsgBox.scrollHeight;
 }
 
-function appendToolResult(toolCard, result) {
+function appendToolResult(toolCard, result, eventSession) {
 	var out = (result.stdout || "").replace(/\n+$/, "");
+	// Update per-session signal
+	var toolSession = sessionStore.getByKey(eventSession);
+	if (toolSession) toolSession.lastToolOutput.value = out;
+	// Dual-write to global state for backward compat
 	S.setLastToolOutput(out);
 	if (out) {
 		var outEl = document.createElement("pre");
@@ -175,7 +186,9 @@ function appendToolResult(toolCard, result) {
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Tool result processing with multiple cases
-function handleChatToolCallEnd(p, isActive, isChatPage) {
+function handleChatToolCallEnd(p, isActive, isChatPage, eventSession) {
+	// Always bump badge — the server persists a tool_result message for each call.
+	bumpSessionCount(eventSession, 1);
 	if (!(isActive && isChatPage)) return;
 	var toolCard = document.getElementById(`tool-${p.toolCallId}`);
 	if (!toolCard) return;
@@ -202,7 +215,7 @@ function handleChatToolCallEnd(p, isActive, isChatPage) {
 	var toolSpin = toolCard.querySelector(".exec-status");
 	if (toolSpin) toolSpin.remove();
 	if (p.success && p.result) {
-		appendToolResult(toolCard, p.result);
+		appendToolResult(toolCard, p.result, eventSession);
 	} else if (!p.success && p.error && p.error.detail) {
 		var errMsg = document.createElement("div");
 		errMsg.className = isValidationError ? "exec-retry-detail" : "exec-error-detail";
@@ -211,14 +224,19 @@ function handleChatToolCallEnd(p, isActive, isChatPage) {
 	}
 }
 
-function handleChatChannelUser(p, _isActive, isChatPage) {
-	if (!isChatPage) return;
-	if (p.sessionKey && p.sessionKey !== S.activeSessionKey) {
-		switchSession(p.sessionKey);
+function handleChatChannelUser(p, isActive, isChatPage, eventSession) {
+	// Always bump the badge so the total message count stays accurate,
+	// even when the user is not on the chat page (e.g. Telegram messages).
+	bumpSessionCount(eventSession, 1);
+	if (!isActive) {
+		setSessionUnread(eventSession, true);
 	}
-	var active = p.sessionKey ? p.sessionKey === S.activeSessionKey : p.sessionKey === undefined;
-	if (!active) return;
-	if (p.messageIndex !== undefined && p.messageIndex <= S.lastHistoryIndex) return;
+	if (!(isChatPage && isActive)) return;
+	// Compare against the per-session history index, not the global one,
+	// to avoid skipping events when viewing a different session.
+	var chanSession = sessionStore.getByKey(p.sessionKey || S.activeSessionKey);
+	var chanLastIdx = chanSession ? chanSession.lastHistoryIndex.value : S.lastHistoryIndex;
+	if (p.messageIndex !== undefined && p.messageIndex <= chanLastIdx) return;
 	var cleanText = stripChannelPrefix(p.text || "");
 	var el = chatAddMsg("user", renderMarkdown(cleanText), true);
 	if (el && p.channel) {
@@ -232,8 +250,12 @@ function setSafeMarkdownHtml(el, text) {
 	el.innerHTML = renderMarkdown(text); // eslint-disable-line no-unsanitized/property
 }
 
-function handleChatDelta(p, isActive, isChatPage) {
-	if (!(p.text && isActive && isChatPage)) return;
+function handleChatDelta(p, isActive, isChatPage, eventSession) {
+	if (!p.text) return;
+	// Update per-session signal
+	var session = sessionStore.getByKey(eventSession);
+	if (session) session.streamText.value += p.text;
+	if (!(isActive && isChatPage)) return;
 	// When voice is pending, accumulate text silently without rendering.
 	if (S.voicePending) {
 		S.setStreamText(S.streamText + p.text);
@@ -290,11 +312,16 @@ function appendFinalFooter(msgEl, p) {
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Final message handling with audio/voice branching
 function handleChatFinal(p, isActive, isChatPage, eventSession) {
-	if (p.messageIndex !== undefined && p.messageIndex <= S.lastHistoryIndex) {
+	// Always bump badge — the server persists the final assistant message.
+	bumpSessionCount(eventSession, 1);
+	// Compare against the per-session history index so cross-session
+	// events aren't wrongly skipped by another session's index.
+	var evtSession = sessionStore.getByKey(eventSession);
+	var lastIdx = evtSession ? evtSession.lastHistoryIndex.value : S.lastHistoryIndex;
+	if (p.messageIndex !== undefined && p.messageIndex <= lastIdx) {
 		setSessionReplying(eventSession, false);
 		return;
 	}
-	bumpSessionCount(eventSession, 1);
 	setSessionReplying(eventSession, false);
 	if (!isActive) {
 		setSessionUnread(eventSession, true);
@@ -370,6 +397,10 @@ function handleChatFinal(p, isActive, isChatPage, eventSession) {
 		updateTokenBar();
 	}
 	appendLastMessageTimestamp(Date.now());
+	// Reset per-session stream state
+	var finalSession = sessionStore.getByKey(eventSession);
+	if (finalSession) finalSession.resetStreamState();
+	// Dual-write to global state for backward compat
 	S.setStreamEl(null);
 	S.setStreamText("");
 	S.setLastToolOutput("");
@@ -398,6 +429,9 @@ function handleChatAutoCompact(p, isActive, isChatPage) {
 
 function handleChatError(p, isActive, isChatPage, eventSession) {
 	setSessionReplying(eventSession, false);
+	// Reset per-session stream state
+	var errSession = sessionStore.getByKey(eventSession);
+	if (errSession) errSession.resetStreamState();
 	if (!(isActive && isChatPage)) {
 		S.setVoicePending(false);
 		return;
@@ -432,6 +466,20 @@ function handleChatQueueCleared(_p, isActive, isChatPage) {
 	}
 }
 
+function handleChatSessionCleared(_p, isActive, isChatPage, eventSession) {
+	// Reset badge, unread state, and history index for every client.
+	var session = sessionStore.getByKey(eventSession);
+	if (session) {
+		session.syncCounts(0, 0);
+		session.lastHistoryIndex.value = -1;
+	}
+	if (!(isActive && isChatPage)) return;
+	// Active viewer: clear the chat box and token bar.
+	if (S.chatMsgBox) S.chatMsgBox.textContent = "";
+	S.setSessionTokens({ input: 0, output: 0 });
+	updateTokenBar();
+}
+
 var chatHandlers = {
 	thinking: handleChatThinking,
 	thinking_text: handleChatThinkingText,
@@ -446,16 +494,17 @@ var chatHandlers = {
 	error: handleChatError,
 	notice: handleChatNotice,
 	queue_cleared: handleChatQueueCleared,
+	session_cleared: handleChatSessionCleared,
 };
 
 function handleChatEvent(p) {
-	var eventSession = p.sessionKey || S.activeSessionKey;
-	var isActive = eventSession === S.activeSessionKey;
+	var eventSession = p.sessionKey || sessionStore.activeSessionKey.value;
+	var isActive = eventSession === sessionStore.activeSessionKey.value;
 	var isChatPage = currentPrefix === "/chats";
 
-	if (isActive && S.sessionSwitchInProgress) return;
+	if (isActive && sessionStore.switchInProgress.value) return;
 
-	if (p.sessionKey && !S.sessions.find((s) => s.key === p.sessionKey)) {
+	if (p.sessionKey && !sessionStore.getByKey(p.sessionKey)) {
 		fetchSessions();
 	}
 
@@ -636,6 +685,7 @@ function handleModelsUpdated(payload) {
 	if (modelsUpdatedTimer) return;
 	modelsUpdatedTimer = setTimeout(() => {
 		modelsUpdatedTimer = null;
+		// fetchModels() delegates to modelStore.fetch() internally
 		fetchModels();
 		if (S.refreshProvidersPage) S.refreshProvidersPage();
 	}, 150);
@@ -747,6 +797,9 @@ var connectOpts = {
 		if (wasConnected) {
 			setStatus("", "disconnected \u2014 reconnecting\u2026");
 		}
+		// Reset active session's stream state
+		var activeS = sessionStore.activeSession.value;
+		if (activeS) activeS.resetStreamState();
 		S.setStreamEl(null);
 		S.setStreamText("");
 	},

@@ -9,6 +9,13 @@ import { onEvent } from "./events.js";
 import * as gon from "./gon.js";
 import { refresh as refreshGon } from "./gon.js";
 import { sendRpc } from "./helpers.js";
+// Moved page init/teardown imports
+import { initChannels, teardownChannels } from "./page-channels.js";
+import { initHooks, teardownHooks } from "./page-hooks.js";
+import { initImages, teardownImages } from "./page-images.js";
+import { initLogs, teardownLogs } from "./page-logs.js";
+import { initMcp, teardownMcp } from "./page-mcp.js";
+import { initProviders, teardownProviders } from "./page-providers.js";
 import { detectPasskeyName } from "./passkey-detect.js";
 import * as push from "./push.js";
 import { isStandalone } from "./pwa.js";
@@ -47,6 +54,7 @@ function fetchIdentity() {
 // ── Sidebar navigation items ─────────────────────────────────
 
 var sections = [
+	{ group: "General" },
 	{
 		id: "identity",
 		label: "Identity",
@@ -63,6 +71,12 @@ var sections = [
 		icon: html`<span class="icon icon-terminal"></span>`,
 	},
 	{
+		id: "voice",
+		label: "Voice",
+		icon: html`<span class="icon icon-microphone"></span>`,
+	},
+	{ group: "Security" },
+	{
 		id: "security",
 		label: "Security",
 		icon: html`<span class="icon icon-lock"></span>`,
@@ -73,14 +87,47 @@ var sections = [
 		icon: html`<span class="icon icon-globe"></span>`,
 	},
 	{
-		id: "voice",
-		label: "Voice",
-		icon: html`<span class="icon icon-microphone"></span>`,
-	},
-	{
 		id: "notifications",
 		label: "Notifications",
 		icon: html`<span class="icon icon-bell"></span>`,
+	},
+	{ group: "Integrations" },
+	{
+		id: "providers",
+		label: "Providers",
+		icon: html`<span class="icon icon-server"></span>`,
+		page: true,
+	},
+	{
+		id: "channels",
+		label: "Channels",
+		icon: html`<span class="icon icon-channels"></span>`,
+		page: true,
+	},
+	{
+		id: "mcp",
+		label: "MCP Tools",
+		icon: html`<span class="icon icon-link"></span>`,
+		page: true,
+	},
+	{
+		id: "hooks",
+		label: "Hooks",
+		icon: html`<span class="icon icon-wrench"></span>`,
+		page: true,
+	},
+	{ group: "System" },
+	{
+		id: "sandboxes",
+		label: "Sandboxes",
+		icon: html`<span class="icon icon-cube"></span>`,
+		page: true,
+	},
+	{
+		id: "logs",
+		label: "Logs",
+		icon: html`<span class="icon icon-document"></span>`,
+		page: true,
 	},
 	{
 		id: "config",
@@ -91,25 +138,32 @@ var sections = [
 
 function getVisibleSections() {
 	var voiceEnabled = gon.get("voice_enabled");
-	return sections.filter((s) => s.id !== "voice" || voiceEnabled);
+	return sections.filter((s) => s.group || s.id !== "voice" || voiceEnabled);
+}
+
+/** Return only items with an id (no group headings). */
+function getSectionItems() {
+	return sections.filter((s) => s.id);
 }
 
 function SettingsSidebar() {
 	return html`<div class="settings-sidebar">
 		<div class="settings-sidebar-nav">
-			${getVisibleSections().map(
-				(s) => html`
-				<button
-					key=${s.id}
-					class="settings-nav-item ${activeSection.value === s.id ? "active" : ""}"
-					onClick=${() => {
-						navigate(`/settings/${s.id}`);
-					}}
-				>
-					${s.icon}
-					${s.label}
-				</button>
-			`,
+			${getVisibleSections().map((s) =>
+				s.group
+					? html`<div key=${s.group} class="settings-group-label">
+							${s.group}
+						</div>`
+					: html`<button
+							key=${s.id}
+							class="settings-nav-item ${activeSection.value === s.id ? "active" : ""}"
+							onClick=${() => {
+								navigate(`/settings/${s.id}`);
+							}}
+						>
+							${s.icon}
+							${s.label}
+						</button>`,
 			)}
 		</div>
 	</div>`;
@@ -478,6 +532,7 @@ function SecuritySection() {
 	var [authDisabled, setAuthDisabled] = useState(false);
 	var [localhostOnly, setLocalhostOnly] = useState(false);
 	var [hasPassword, setHasPassword] = useState(true);
+	var [setupComplete, setSetupComplete] = useState(false);
 	var [authLoading, setAuthLoading] = useState(true);
 
 	var [curPw, setCurPw] = useState("");
@@ -514,6 +569,7 @@ function SecuritySection() {
 				if (d?.auth_disabled) setAuthDisabled(true);
 				if (d?.localhost_only) setLocalhostOnly(true);
 				if (d?.has_password === false) setHasPassword(false);
+				if (d?.setup_complete) setSetupComplete(true);
 				if (d?.passkey_origins) setPasskeyOrigins(d.passkey_origins);
 				setAuthLoading(false);
 				rerender();
@@ -797,7 +853,7 @@ function SecuritySection() {
 		${
 			localhostOnly && !hasPassword
 				? html`<div class="alert-info-text max-w-form">
-					<span class="alert-label-info">Note:</span>${" "}
+					<span class="alert-label-info">Note: </span>
 					Moltis is running on localhost, so you have full access without a password.
 					Set a password before exposing moltis to the network.
 				</div>`
@@ -861,16 +917,16 @@ function SecuritySection() {
 									<input type="text" class="provider-key-input" value=${editingPkName}
 										onInput=${(e) => setEditingPkName(e.target.value)}
 										style="flex:1" autofocus />
-									<button type="submit" class="provider-btn">Save</button>
-									<button type="button" class="provider-btn" onClick=${onCancelRename}>Cancel</button>
+									<button type="submit" class="provider-btn provider-btn-sm">Save</button>
+									<button type="button" class="provider-btn provider-btn-sm provider-btn-secondary" onClick=${onCancelRename}>Cancel</button>
 								</form>`
 								: html`<div style="flex:1;min-width:0;">
 									<div class="provider-item-name" style="font-size:.85rem;">${pk.name}</div>
-									<div style="font-size:.7rem;color:var(--muted);margin-top:2px;">${pk.created_at}</div>
+									<div style="font-size:.7rem;color:var(--muted);margin-top:2px;"><time datetime=${pk.created_at}>${pk.created_at}</time></div>
 								</div>
 								<div style="display:flex;gap:4px;">
-									<button class="provider-btn" onClick=${() => onStartRename(pk.id, pk.name)}>Rename</button>
-									<button class="provider-btn provider-btn-danger"
+									<button class="provider-btn provider-btn-sm provider-btn-secondary" onClick=${() => onStartRename(pk.id, pk.name)}>Rename</button>
+									<button class="provider-btn provider-btn-sm provider-btn-danger"
 										onClick=${() => onRemovePasskey(pk.id)}>Remove</button>
 								</div>`
 						}
@@ -917,7 +973,7 @@ function SecuritySection() {
 							<div class="provider-item-name" style="font-size:.85rem;">${ak.label}</div>
 							<div style="font-size:.7rem;color:var(--muted);margin-top:2px;display:flex;gap:12px;flex-wrap:wrap;">
 								<span style="font-family:var(--font-mono);">${ak.key_prefix}...</span>
-								<span>${ak.created_at}</span>
+								<span><time datetime=${ak.created_at}>${ak.created_at}</time></span>
 								${ak.scopes ? html`<span style="color:var(--accent);">${ak.scopes.join(", ")}</span>` : html`<span style="color:var(--accent);">Full access</span>`}
 							</div>
 						</div>
@@ -986,8 +1042,10 @@ function SecuritySection() {
 			}
 		</div>
 
-		<!-- Danger zone -->
-		<div style="max-width:600px;margin-top:8px;border-top:1px solid var(--error);padding-top:16px;">
+		<!-- Danger zone (only when auth has been set up) -->
+		${
+			setupComplete
+				? html`<div style="max-width:600px;margin-top:8px;border-top:1px solid var(--error);padding-top:16px;">
 			<h3 class="text-sm font-medium" style="color:var(--error);margin-bottom:8px;">Danger Zone</h3>
 			<div style="padding:12px 16px;border:1px solid var(--error);border-radius:6px;background:color-mix(in srgb, var(--error) 5%, transparent);">
 				<strong class="text-sm" style="color:var(--text-strong);">Remove all authentication</strong>
@@ -1011,7 +1069,9 @@ function SecuritySection() {
 						onClick=${onResetAuth}>Remove all authentication</button>`
 				}
 			</div>
-		</div>
+		</div>`
+				: ""
+		}
 	</div>`;
 }
 
@@ -1765,11 +1825,22 @@ function VoiceSection() {
 				if (res?.ok && res.payload?.audio) {
 					// Decode base64 audio and play it
 					var bytes = decodeBase64Safe(res.payload.audio);
-					var blob = new Blob([bytes], { type: res.payload.content_type || "audio/mpeg" });
+					var audioMime = res.payload.mimeType || res.payload.content_type || "audio/mpeg";
+					console.log(
+						"[TTS] audio received: %d bytes, mime=%s, format=%s",
+						bytes.length,
+						audioMime,
+						res.payload.format,
+					);
+					var blob = new Blob([bytes], { type: audioMime });
 					var url = URL.createObjectURL(blob);
 					var audio = new Audio(url);
+					audio.onerror = (e) => {
+						console.error("[TTS] audio element error:", audio.error?.message || e);
+						URL.revokeObjectURL(url);
+					};
 					audio.onended = () => URL.revokeObjectURL(url);
-					audio.play().catch(() => undefined);
+					audio.play().catch((e) => console.error("[TTS] play() failed:", e));
 					setVoiceTestResults((prev) => ({
 						...prev,
 						[providerId]: { success: true, error: null },
@@ -1823,20 +1894,36 @@ function VoiceSection() {
 								body: audioBlob,
 							},
 						);
-						var sttRes = await resp.json();
+						console.log("[STT] upload response: status=%d ok=%s", resp.status, resp.ok);
+						if (resp.ok) {
+							var sttRes = await resp.json();
 
-						if (sttRes.ok && sttRes.transcription?.text) {
-							setVoiceTestResults((prev) => ({
-								...prev,
-								[providerId]: { text: sttRes.transcription.text, error: null },
-							}));
+							if (sttRes.ok && sttRes.transcription?.text) {
+								setVoiceTestResults((prev) => ({
+									...prev,
+									[providerId]: { text: sttRes.transcription.text, error: null },
+								}));
+							} else {
+								setVoiceTestResults((prev) => ({
+									...prev,
+									[providerId]: {
+										text: null,
+										error: sttRes.transcriptionError || sttRes.error || "STT test failed",
+									},
+								}));
+							}
 						} else {
+							var errBody = await resp.text();
+							console.error("[STT] upload failed: status=%d body=%s", resp.status, errBody);
+							var errMsg = "STT test failed";
+							try {
+								errMsg = JSON.parse(errBody)?.error || errMsg;
+							} catch (_e) {
+								// not JSON
+							}
 							setVoiceTestResults((prev) => ({
 								...prev,
-								[providerId]: {
-									text: null,
-									error: sttRes.transcriptionError || sttRes.error || "STT test failed",
-								},
+								[providerId]: { text: null, error: `${errMsg} (HTTP ${resp.status})` },
 							}));
 						}
 					} catch (fetchErr) {
@@ -1998,7 +2085,14 @@ function VoiceProviderRow({ provider, meta, type, saving, testState, testResult,
 			</div>`
 					: null
 			}
-			${testResult?.error ? html`<span class="text-xs text-[var(--error)]">${testResult.error}</span>` : null}
+			${
+				testResult?.error
+					? html`<div class="voice-error-result">
+				<span class="icon icon-md icon-x-circle"></span>
+				<span>${testResult.error}</span>
+			</div>`
+					: null
+			}
 		</div>
 		<div style="display:flex;align-items:center;gap:8px;">
 			<button class="provider-btn provider-btn-secondary provider-btn-sm" onClick=${onConfigure}>
@@ -2929,6 +3023,32 @@ function NotificationsSection() {
 	</div>`;
 }
 
+// ── Page-section init/teardown map ──────────────────────────
+
+var pageSectionHandlers = {
+	providers: { init: initProviders, teardown: teardownProviders },
+	channels: { init: initChannels, teardown: teardownChannels },
+	mcp: { init: initMcp, teardown: teardownMcp },
+	hooks: { init: initHooks, teardown: teardownHooks },
+	sandboxes: { init: initImages, teardown: teardownImages },
+	logs: { init: initLogs, teardown: teardownLogs },
+};
+
+/** Wrapper that mounts a page init/teardown pair into a ref div. */
+function PageSection({ initFn, teardownFn }) {
+	var ref = useRef(null);
+	useEffect(() => {
+		if (ref.current) initFn(ref.current);
+		return () => {
+			if (teardownFn) teardownFn();
+		};
+	}, []);
+	return html`<div
+		ref=${ref}
+		class="flex-1 flex flex-col min-w-0 overflow-hidden"
+	/>`;
+}
+
 // ── Main layout ──────────────────────────────────────────────
 
 function SettingsPage() {
@@ -2937,9 +3057,11 @@ function SettingsPage() {
 	}, []);
 
 	var section = activeSection.value;
+	var ps = pageSectionHandlers[section];
 
 	return html`<div class="settings-layout">
 		<${SettingsSidebar} />
+		${ps ? html`<${PageSection} key=${section} initFn=${ps.init} teardownFn=${ps.teardown} />` : null}
 		${section === "identity" ? html`<${IdentitySection} />` : null}
 		${section === "memory" ? html`<${MemorySection} />` : null}
 		${section === "environment" ? html`<${EnvironmentSection} />` : null}
@@ -2951,14 +3073,16 @@ function SettingsPage() {
 	</div>`;
 }
 
+var DEFAULT_SECTION = "identity";
+
 registerPrefix(
 	"/settings",
 	(container, param) => {
 		mounted = true;
 		containerRef = container;
 		container.style.cssText = "flex-direction:row;padding:0;overflow:hidden;";
-		var isValidSection = param && sections.some((s) => s.id === param);
-		var section = isValidSection ? param : "identity";
+		var isValidSection = param && getSectionItems().some((s) => s.id === param);
+		var section = isValidSection ? param : DEFAULT_SECTION;
 		activeSection.value = section;
 		if (!isValidSection) {
 			history.replaceState(null, "", `/settings/${section}`);
@@ -2972,6 +3096,6 @@ registerPrefix(
 		containerRef = null;
 		identity.value = null;
 		loading.value = true;
-		activeSection.value = "identity";
+		activeSection.value = DEFAULT_SECTION;
 	},
 );

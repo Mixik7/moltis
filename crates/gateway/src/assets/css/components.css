@@ -305,8 +305,14 @@
   background: var(--bg-hover);
 }
 
-.cron-action-danger:hover {
+.cron-action-danger {
   color: var(--error);
+  border-color: var(--error);
+}
+
+.cron-action-danger:hover {
+  background: var(--error);
+  color: #fff;
   border-color: var(--error);
 }
 
@@ -336,14 +342,12 @@
   flex-wrap: wrap;
 }
 
-.logs-select {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: var(--radius-sm);
-  font-size: 0.78rem;
-  padding: 4px 8px;
-  font-family: var(--font-body);
+.logs-level-filter {
+  width: 150px;
+}
+
+.logs-level-filter .model-combo-chevron {
+  margin-left: auto;
 }
 
 .logs-input {
@@ -699,6 +703,23 @@
 .settings-sidebar-nav {
   flex: 1;
   overflow-y: auto;
+}
+
+.settings-group-label {
+  padding: 16px 16px 6px;
+  margin-top: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  border-top: 1px solid var(--border);
+}
+
+.settings-group-label:first-child {
+  padding-top: 10px;
+  margin-top: 0;
+  border-top: none;
 }
 
 .settings-nav-item {
