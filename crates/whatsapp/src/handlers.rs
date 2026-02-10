@@ -707,11 +707,11 @@ async fn handle_otp_flow(
     state: &AccountState,
 ) {
     let has_pending = {
-        let accts = accounts.read().unwrap();
+        let accts = accounts.read().unwrap_or_else(|e| e.into_inner());
         accts
             .get(account_id)
             .map(|s| {
-                let otp = s.otp.lock().unwrap();
+                let otp = s.otp.lock().unwrap_or_else(|e| e.into_inner());
                 otp.has_pending(peer_id)
             })
             .unwrap_or(false)
@@ -725,10 +725,10 @@ async fn handle_otp_flow(
         }
 
         let result = {
-            let accts = accounts.read().unwrap();
+            let accts = accounts.read().unwrap_or_else(|e| e.into_inner());
             match accts.get(account_id) {
                 Some(s) => {
-                    let mut otp = s.otp.lock().unwrap();
+                    let mut otp = s.otp.lock().unwrap_or_else(|e| e.into_inner());
                     otp.verify(peer_id, trimmed)
                 },
                 None => return,
@@ -792,10 +792,10 @@ async fn handle_otp_flow(
 
     // No pending challenge — initiate one.
     let init_result = {
-        let accts = accounts.read().unwrap();
+        let accts = accounts.read().unwrap_or_else(|e| e.into_inner());
         match accts.get(account_id) {
             Some(s) => {
-                let mut otp = s.otp.lock().unwrap();
+                let mut otp = s.otp.lock().unwrap_or_else(|e| e.into_inner());
                 otp.initiate(
                     peer_id,
                     username.map(String::from),

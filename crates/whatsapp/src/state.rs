@@ -52,7 +52,10 @@ pub struct AccountState {
 impl AccountState {
     /// Record a message ID that was sent by the bot, for self-chat loop detection.
     pub fn record_sent_id(&self, id: &str) {
-        let mut ids = self.recent_sent_ids.lock().unwrap();
+        let mut ids = self
+            .recent_sent_ids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if ids.len() >= SENT_IDS_CAPACITY {
             ids.pop_front();
         }
@@ -61,7 +64,10 @@ impl AccountState {
 
     /// Check if a message ID was recently sent by the bot.
     pub fn was_sent_by_us(&self, id: &str) -> bool {
-        let ids = self.recent_sent_ids.lock().unwrap();
+        let ids = self
+            .recent_sent_ids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         ids.iter().any(|sent_id| sent_id == id)
     }
 

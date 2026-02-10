@@ -69,13 +69,13 @@ impl WhatsAppPlugin {
 
     /// List all active account IDs.
     pub fn account_ids(&self) -> Vec<String> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts.keys().cloned().collect()
     }
 
     /// Get the config for a specific account (serialized to JSON).
     pub fn account_config(&self, account_id: &str) -> Option<serde_json::Value> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .and_then(|s| serde_json::to_value(&s.config).ok())
@@ -83,7 +83,7 @@ impl WhatsAppPlugin {
 
     /// Get the latest QR code data for a specific account.
     pub fn latest_qr(&self, account_id: &str) -> Option<String> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .and_then(|s| s.latest_qr.read().ok()?.clone())
@@ -97,7 +97,7 @@ impl WhatsAppPlugin {
         config: serde_json::Value,
     ) -> anyhow::Result<()> {
         let wa_config: WhatsAppAccountConfig = serde_json::from_value(config)?;
-        let mut accounts = self.accounts.write().unwrap();
+        let mut accounts = self.accounts.write().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = accounts.get_mut(account_id) {
             state.config = wa_config;
             Ok(())
@@ -108,11 +108,11 @@ impl WhatsAppPlugin {
 
     /// List pending OTP challenges for a specific account.
     pub fn pending_otp_challenges(&self, account_id: &str) -> Vec<crate::otp::OtpChallengeInfo> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .map(|s| {
-                let otp = s.otp.lock().unwrap();
+                let otp = s.otp.lock().unwrap_or_else(|e| e.into_inner());
                 otp.list_pending()
             })
             .unwrap_or_default()
@@ -149,14 +149,14 @@ impl ChannelPlugin for WhatsAppPlugin {
 
     async fn stop_account(&mut self, account_id: &str) -> Result<()> {
         let cancel = {
-            let accounts = self.accounts.read().unwrap();
+            let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
             accounts.get(account_id).map(|s| s.cancel.clone())
         };
 
         if let Some(cancel) = cancel {
             info!(account_id, "stopping WhatsApp account");
             cancel.cancel();
-            let mut accounts = self.accounts.write().unwrap();
+            let mut accounts = self.accounts.write().unwrap_or_else(|e| e.into_inner());
             accounts.remove(account_id);
         } else {
             warn!(account_id, "WhatsApp account not found");
@@ -186,7 +186,7 @@ impl ChannelStatus for WhatsAppPlugin {
         }
 
         let result = {
-            let accounts = self.accounts.read().unwrap();
+            let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
             match accounts.get(account_id) {
                 Some(state) => {
                     let connected = state.connected.load(std::sync::atomic::Ordering::Relaxed);

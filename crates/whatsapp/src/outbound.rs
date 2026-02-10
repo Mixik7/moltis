@@ -16,7 +16,7 @@ impl WhatsAppOutbound {
         &self,
         account_id: &str,
     ) -> Result<std::sync::Arc<whatsapp_rust::client::Client>> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .map(|s| std::sync::Arc::clone(&s.client))
@@ -25,7 +25,7 @@ impl WhatsAppOutbound {
 
     /// Record a sent message ID for self-chat loop detection.
     fn record_sent_id(&self, account_id: &str, msg_id: &str) {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = accounts.get(account_id) {
             state.record_sent_id(msg_id);
         }

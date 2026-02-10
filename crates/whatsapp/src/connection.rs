@@ -96,7 +96,7 @@ pub async fn start_connection(
 
     // Insert into the shared map.
     {
-        let mut map = accounts.write().unwrap();
+        let mut map = accounts.write().unwrap_or_else(|e| e.into_inner());
         map.insert(account_id.clone(), AccountState {
             client: Arc::clone(&client),
             account_id: account_id.clone(),
