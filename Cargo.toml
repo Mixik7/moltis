@@ -26,6 +26,7 @@ members = [
   "crates/skills",
   "crates/telegram",
   "crates/tools",
+  "crates/vault",
   "crates/voice",
 ]
 resolver = "2"
@@ -111,10 +112,12 @@ time           = "0.3"
 tokio-rustls   = "0.26"
 # Cryptography / authentication
 argon2            = "0.5"
+chacha20poly1305  = { features = ["std"], version = "0.10" }
 p256              = "0.13"
 password-hash     = "0.5"
 webauthn-rs       = "0.5"
 webauthn-rs-proto = "0.5"
+zeroize           = { features = ["derive"], version = "1" }
 # Web / HTTP utilities
 dashmap     = "6"
 hostname    = "0.4"
@@ -169,4 +172,5 @@ moltis-sessions   = { path = "crates/sessions" }
 moltis-skills     = { path = "crates/skills" }
 moltis-telegram   = { path = "crates/telegram" }
 moltis-tools      = { path = "crates/tools" }
+moltis-vault      = { path = "crates/vault" }
 moltis-voice      = { path = "crates/voice" }

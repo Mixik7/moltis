@@ -497,6 +497,13 @@ fn build_protected_api_routes() -> Router<AppState> {
 /// Apply auth middleware and feature-specific routes to protected API routes.
 #[cfg(feature = "web-ui")]
 fn finalize_protected_routes(protected: Router<AppState>, app_state: AppState) -> Router<AppState> {
+    // Vault guard: return 423 Locked when vault is sealed.
+    #[cfg(feature = "vault")]
+    let protected = protected.layer(axum::middleware::from_fn_with_state(
+        app_state.clone(),
+        crate::auth_middleware::vault_guard,
+    ));
+
     let protected = protected.layer(axum::middleware::from_fn_with_state(
         app_state,
         crate::auth_middleware::require_auth,
@@ -1023,6 +1030,11 @@ pub async fn start_gateway(
     moltis_cron::run_migrations(&db_pool)
         .await
         .expect("failed to run cron migrations");
+    // Vault tables (must run before gateway for the encrypted column migration).
+    #[cfg(feature = "vault")]
+    moltis_vault::run_migrations(&db_pool)
+        .await
+        .expect("failed to run vault migrations");
     // Gateway's own tables (auth, message_log, channels).
     crate::run_migrations(&db_pool)
         .await
@@ -1031,7 +1043,52 @@ pub async fn start_gateway(
     // Migrate plugins data into unified skills system (idempotent, non-fatal).
     moltis_skills::migration::migrate_plugins_to_skills(&data_dir).await;
 
+    // Initialize the vault (if feature enabled).
+    // The vault struct is created early so it can be shared with the credential store.
+    // If vault metadata doesn't exist yet (Uninitialized), the vault is still created
+    // but won't encrypt/decrypt until initialized+unsealed.
+    #[cfg(feature = "vault")]
+    let vault: Option<Arc<moltis_vault::Vault>> = {
+        match moltis_vault::Vault::new(db_pool.clone()).await {
+            Ok(v) => {
+                let v = Arc::new(v);
+                match v.status().await {
+                    Ok(moltis_vault::VaultStatus::Uninitialized) => {
+                        tracing::debug!("vault not initialized (no password set yet)");
+                        // Still pass the vault handle so it can be initialized later
+                        // during setup, but it won't encrypt/decrypt until then.
+                        Some(v)
+                    },
+                    Ok(moltis_vault::VaultStatus::Sealed) => {
+                        tracing::info!("vault is sealed — unlock required");
+                        Some(v)
+                    },
+                    Ok(moltis_vault::VaultStatus::Unsealed) => {
+                        // Shouldn't happen on fresh start, but handle gracefully.
+                        tracing::info!("vault is unsealed");
+                        Some(v)
+                    },
+                    Err(e) => {
+                        tracing::warn!("failed to query vault status: {e}");
+                        None
+                    },
+                }
+            },
+            Err(e) => {
+                tracing::warn!("failed to create vault: {e}");
+                None
+            },
+        }
+    };
+
     // Initialize credential store (auth tables).
+    #[cfg(feature = "vault")]
+    let credential_store = Arc::new(
+        auth::CredentialStore::with_vault(db_pool.clone(), &config.auth, vault.clone())
+            .await
+            .expect("failed to init credential store"),
+    );
+    #[cfg(not(feature = "vault"))]
     let credential_store = Arc::new(
         auth::CredentialStore::new(db_pool.clone())
             .await
@@ -2082,6 +2139,8 @@ pub async fn start_gateway(
         metrics_handle,
         #[cfg(feature = "metrics")]
         metrics_store.clone(),
+        #[cfg(feature = "vault")]
+        vault.clone(),
     );
 
     // Store discovered hook info and disabled set in state for the web UI.
@@ -3459,6 +3518,9 @@ struct GonData {
     deploy_platform: Option<String>,
     /// Availability of newer GitHub release for this running version.
     update: crate::update_check::UpdateAvailability,
+    /// Vault status: "uninitialized", "sealed", or "unsealed".
+    #[cfg(feature = "vault")]
+    vault_status: String,
 }
 
 /// Memory snapshot included in gon data and tick broadcasts.
@@ -3575,6 +3637,18 @@ async fn build_gon_data(gw: &GatewayState) -> GonData {
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
+    #[cfg(feature = "vault")]
+    let vault_status = match &gw.vault {
+        Some(v) => match v.status().await {
+            Ok(s) => serde_json::to_value(s)
+                .ok()
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| "uninitialized".to_string()),
+            Err(_) => "uninitialized".to_string(),
+        },
+        None => "uninitialized".to_string(),
+    };
+
     GonData {
         identity,
         port,
@@ -3588,6 +3662,8 @@ async fn build_gon_data(gw: &GatewayState) -> GonData {
         mem: collect_mem_snapshot(),
         deploy_platform: gw.deploy_platform.clone(),
         update: gw.inner.read().await.update.clone(),
+        #[cfg(feature = "vault")]
+        vault_status,
     }
 }
 

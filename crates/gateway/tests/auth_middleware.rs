@@ -68,6 +68,8 @@ async fn start_auth_server_impl(
         None,
         #[cfg(feature = "metrics")]
         None,
+        #[cfg(feature = "vault")]
+        None,
     );
     let state_clone = Arc::clone(&state);
     let methods = Arc::new(MethodRegistry::new());

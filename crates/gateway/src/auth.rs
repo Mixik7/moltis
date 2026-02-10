@@ -85,6 +85,9 @@ pub struct CredentialStore {
     /// When true, auth has been explicitly disabled via "remove all auth".
     /// The middleware and status endpoint treat this as "no auth configured".
     auth_disabled: AtomicBool,
+    /// Encryption-at-rest vault for env variable values.
+    #[cfg(feature = "vault")]
+    vault: Option<std::sync::Arc<moltis_vault::Vault>>,
 }
 
 impl CredentialStore {
@@ -103,6 +106,28 @@ impl CredentialStore {
         Self::with_config(pool, &config.auth).await
     }
 
+    /// Create a new store with explicit auth config and optional vault.
+    #[cfg(feature = "vault")]
+    pub async fn with_vault(
+        pool: SqlitePool,
+        auth_config: &moltis_config::AuthConfig,
+        vault: Option<std::sync::Arc<moltis_vault::Vault>>,
+    ) -> anyhow::Result<Self> {
+        let store = Self {
+            pool,
+            setup_complete: AtomicBool::new(false),
+            auth_disabled: AtomicBool::new(false),
+            vault,
+        };
+        store.init().await?;
+        let has = store.has_password().await? || store.has_passkeys().await?;
+        store.setup_complete.store(has, Ordering::Relaxed);
+        store
+            .auth_disabled
+            .store(auth_config.disabled, Ordering::Relaxed);
+        Ok(store)
+    }
+
     /// Create a new store with explicit auth config (avoids reading from disk).
     pub async fn with_config(
         pool: SqlitePool,
@@ -112,6 +137,8 @@ impl CredentialStore {
             pool,
             setup_complete: AtomicBool::new(false),
             auth_disabled: AtomicBool::new(false),
+            #[cfg(feature = "vault")]
+            vault: None,
         };
         store.init().await?;
         let has = store.has_password().await? || store.has_passkeys().await?;
@@ -182,6 +209,7 @@ impl CredentialStore {
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 key        TEXT    NOT NULL UNIQUE,
                 value      TEXT    NOT NULL,
+                encrypted  INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT    NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
             )",
@@ -202,6 +230,12 @@ impl CredentialStore {
     /// Whether authentication has been explicitly disabled via reset.
     pub fn is_auth_disabled(&self) -> bool {
         self.auth_disabled.load(Ordering::Relaxed)
+    }
+
+    /// Borrow the underlying SQLite pool (e.g. for vault migration queries).
+    #[cfg(feature = "vault")]
+    pub fn db_pool(&self) -> &SqlitePool {
+        &self.pool
     }
 
     /// Clear the auth-disabled flag (e.g. after completing localhost setup without a password).
@@ -451,13 +485,36 @@ impl CredentialStore {
     }
 
     /// Set (upsert) an environment variable.
+    ///
+    /// When the vault is unsealed, the value is encrypted before storage
+    /// and the `encrypted` flag is set to `1`.
     pub async fn set_env_var(&self, key: &str, value: &str) -> anyhow::Result<i64> {
+        #[cfg(feature = "vault")]
+        let (stored_value, encrypted_flag) = {
+            if let Some(ref vault) = self.vault
+                && vault.is_unsealed().await
+            {
+                let aad = format!("env:{key}");
+                let enc = vault
+                    .encrypt_string(value, &aad)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("vault encrypt: {e}"))?;
+                (enc, 1i32)
+            } else {
+                (value.to_string(), 0i32)
+            }
+        };
+
+        #[cfg(not(feature = "vault"))]
+        let (stored_value, encrypted_flag) = (value.to_string(), 0i32);
+
         let result = sqlx::query(
-            "INSERT INTO env_variables (key, value) VALUES (?, ?)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
+            "INSERT INTO env_variables (key, value, encrypted) VALUES (?, ?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, encrypted = excluded.encrypted, updated_at = datetime('now')",
         )
         .bind(key)
-        .bind(value)
+        .bind(&stored_value)
+        .bind(encrypted_flag)
         .execute(&self.pool)
         .await?;
         Ok(result.last_insert_rowid())
@@ -473,12 +530,39 @@ impl CredentialStore {
     }
 
     /// Get all environment variable key-value pairs (internal use for sandbox injection).
+    ///
+    /// Rows with `encrypted = 1` are decrypted via the vault before returning.
     pub async fn get_all_env_values(&self) -> anyhow::Result<Vec<(String, String)>> {
-        let rows: Vec<(String, String)> =
-            sqlx::query_as("SELECT key, value FROM env_variables ORDER BY key ASC")
+        let rows: Vec<(String, String, i32)> =
+            sqlx::query_as("SELECT key, value, encrypted FROM env_variables ORDER BY key ASC")
                 .fetch_all(&self.pool)
                 .await?;
-        Ok(rows)
+
+        let mut result = Vec::with_capacity(rows.len());
+        for (key, value, encrypted) in rows {
+            let plaintext = if encrypted == 1 {
+                #[cfg(feature = "vault")]
+                {
+                    if let Some(ref vault) = self.vault {
+                        let aad = format!("env:{key}");
+                        vault
+                            .decrypt_string(&value, &aad)
+                            .await
+                            .map_err(|e| anyhow::anyhow!("vault decrypt env:{key}: {e}"))?
+                    } else {
+                        anyhow::bail!("env var '{key}' is encrypted but vault is not available");
+                    }
+                }
+                #[cfg(not(feature = "vault"))]
+                {
+                    anyhow::bail!("env var '{key}' is encrypted but vault feature is disabled");
+                }
+            } else {
+                value
+            };
+            result.push((key, plaintext));
+        }
+        Ok(result)
     }
 
     // ── Reset (remove all auth) ─────────────────────────────────────────

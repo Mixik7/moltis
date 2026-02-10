@@ -142,6 +142,37 @@ pub async fn require_auth(
         .into_response()
 }
 
+/// Middleware that returns 423 Locked when the vault is sealed.
+///
+/// Allows `/api/auth/*` and `/api/gon` through (so the unlock page works).
+/// Non-API routes also pass through (static assets, HTML).
+#[cfg(feature = "vault")]
+pub async fn vault_guard(
+    State(state): axum::extract::State<super::server::AppState>,
+    request: axum::http::Request<axum::body::Body>,
+    next: Next,
+) -> axum::response::Response {
+    let Some(ref vault) = state.gateway.vault else {
+        return next.run(request).await;
+    };
+
+    // Let auth and gon endpoints through (needed for unlock page).
+    let path = request.uri().path();
+    if !path.starts_with("/api/") || path.starts_with("/api/auth/") || path == "/api/gon" {
+        return next.run(request).await;
+    }
+
+    if !vault.is_unsealed().await {
+        return (
+            StatusCode::LOCKED,
+            Json(serde_json::json!({"error": "vault is sealed", "status": "sealed"})),
+        )
+            .into_response();
+    }
+
+    next.run(request).await
+}
+
 /// Parse a specific cookie value from a Cookie header string.
 pub fn parse_cookie<'a>(header: &'a str, name: &str) -> Option<&'a str> {
     for part in header.split(';') {

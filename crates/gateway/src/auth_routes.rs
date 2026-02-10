@@ -40,7 +40,7 @@ impl axum::extract::FromRef<AuthState> for Arc<GatewayState> {
 
 /// Build the auth router with all `/api/auth/*` routes.
 pub fn auth_router() -> axum::Router<AuthState> {
-    axum::Router::new()
+    let router = axum::Router::new()
         .route("/status", get(status_handler))
         .route("/setup", post(setup_handler))
         .route("/login", post(login_handler))
@@ -74,7 +74,16 @@ pub fn auth_router() -> axum::Router<AuthState> {
             "/setup/passkey/register/finish",
             post(setup_passkey_register_finish_handler),
         )
-        .route("/reset", post(reset_auth_handler))
+        .route("/reset", post(reset_auth_handler));
+
+    // Vault routes (behind feature flag).
+    #[cfg(feature = "vault")]
+    let router = router
+        .route("/vault/status", get(vault_status_handler))
+        .route("/vault/unlock", post(vault_unlock_handler))
+        .route("/vault/recovery", post(vault_recovery_handler));
+
+    router
 }
 
 // ── Status ───────────────────────────────────────────────────────────────────
@@ -181,6 +190,46 @@ async fn setup_handler(
             )
                 .into_response();
         }
+
+        // Initialize the vault with the same password.
+        #[cfg(feature = "vault")]
+        {
+            if let Some(ref vault) = state.gateway_state.vault {
+                match vault.initialize(&password).await {
+                    Ok(recovery_key) => {
+                        // Migrate existing plaintext data now that the vault is live.
+                        run_vault_migrations(&state).await;
+                        // Clear setup code and create session, returning the recovery key.
+                        state.gateway_state.inner.write().await.setup_code = None;
+                        return match state.credential_store.create_session().await {
+                            Ok(token) => {
+                                let cookie = format!(
+                                    "{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000"
+                                );
+                                (
+                                    StatusCode::OK,
+                                    [(axum::http::header::SET_COOKIE, cookie)],
+                                    Json(serde_json::json!({
+                                        "ok": true,
+                                        "recovery_key": recovery_key.phrase()
+                                    })),
+                                )
+                                    .into_response()
+                            },
+                            Err(e) => (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                format!("failed to create session: {e}"),
+                            )
+                                .into_response(),
+                        };
+                    },
+                    Err(e) => {
+                        tracing::warn!("failed to initialize vault: {e}");
+                        // Non-fatal: continue without vault.
+                    },
+                }
+            }
+        }
     }
 
     // Clear setup code and create session.
@@ -207,13 +256,25 @@ async fn login_handler(
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     match state.credential_store.verify_password(&body.password).await {
-        Ok(true) => match state.credential_store.create_session().await {
-            Ok(token) => session_response(token),
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("session error: {e}"),
-            )
-                .into_response(),
+        Ok(true) => {
+            // Also unseal the vault on successful login and migrate plaintext data.
+            #[cfg(feature = "vault")]
+            if let Some(ref vault) = state.gateway_state.vault {
+                if let Err(e) = vault.unseal(&body.password).await {
+                    tracing::debug!("vault unseal on login failed: {e}");
+                } else {
+                    run_vault_migrations(&state).await;
+                }
+            }
+
+            match state.credential_store.create_session().await {
+                Ok(token) => session_response(token),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("session error: {e}"),
+                )
+                    .into_response(),
+            }
         },
         Ok(false) => (StatusCode::UNAUTHORIZED, "invalid password").into_response(),
         Err(e) => (
@@ -295,7 +356,19 @@ async fn change_password_handler(
         .change_password(&current_password, &body.new_password)
         .await
     {
-        Ok(()) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Ok(()) => {
+            // Also change the vault password (re-wraps DEK, no data re-encryption).
+            #[cfg(feature = "vault")]
+            if let Some(ref vault) = state.gateway_state.vault
+                && let Err(e) = vault
+                    .change_password(&current_password, &body.new_password)
+                    .await
+            {
+                tracing::warn!("vault password change failed: {e}");
+                // Non-fatal: credential store password was already changed.
+            }
+            Json(serde_json::json!({ "ok": true })).into_response()
+        },
         Err(e) => {
             let msg = e.to_string();
             if msg.contains("incorrect") {
@@ -674,4 +747,96 @@ fn extract_session_token(headers: &axum::http::HeaderMap) -> Option<&str> {
         .get(axum::http::header::COOKIE)
         .and_then(|v| v.to_str().ok())?;
     crate::auth_middleware::parse_cookie(cookie_header, SESSION_COOKIE)
+}
+
+// ── Vault routes ────────────────────────────────────────────────────────────
+
+/// Migrate plaintext data to encrypted storage after a successful vault unseal.
+///
+/// Currently migrates env variable rows with `encrypted = 0`. File-based stores
+/// (provider_keys.json, oauth_tokens.json) will be migrated in a follow-up.
+#[cfg(feature = "vault")]
+async fn run_vault_migrations(state: &AuthState) {
+    let Some(ref vault) = state.gateway_state.vault else {
+        return;
+    };
+
+    // Encrypt plaintext env vars.
+    let pool = state.credential_store.db_pool();
+    match moltis_vault::migration::migrate_env_vars(vault, pool).await {
+        Ok(n) if n > 0 => tracing::info!(count = n, "migrated env vars to encrypted storage"),
+        Ok(_) => {},
+        Err(e) => tracing::warn!("env var migration failed: {e}"),
+    }
+}
+
+#[cfg(feature = "vault")]
+async fn vault_status_handler(State(state): State<AuthState>) -> impl IntoResponse {
+    let vault = &state.gateway_state.vault;
+    let status = match vault {
+        Some(v) => match v.status().await {
+            Ok(s) => s,
+            Err(e) => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+            },
+        },
+        None => moltis_vault::VaultStatus::Uninitialized,
+    };
+    Json(serde_json::json!({ "status": status })).into_response()
+}
+
+#[cfg(feature = "vault")]
+#[derive(serde::Deserialize)]
+struct VaultUnlockRequest {
+    password: String,
+}
+
+#[cfg(feature = "vault")]
+async fn vault_unlock_handler(
+    State(state): State<AuthState>,
+    Json(body): Json<VaultUnlockRequest>,
+) -> impl IntoResponse {
+    let Some(ref vault) = state.gateway_state.vault else {
+        return (StatusCode::NOT_FOUND, "vault not initialized").into_response();
+    };
+
+    match vault.unseal(&body.password).await {
+        Ok(()) => {
+            // Migrate plaintext data to encrypted storage.
+            run_vault_migrations(&state).await;
+            Json(serde_json::json!({ "ok": true })).into_response()
+        },
+        Err(moltis_vault::VaultError::BadCredential) => {
+            (StatusCode::UNAUTHORIZED, "incorrect password").into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+#[cfg(feature = "vault")]
+#[derive(serde::Deserialize)]
+struct VaultRecoveryRequest {
+    recovery_key: String,
+}
+
+#[cfg(feature = "vault")]
+async fn vault_recovery_handler(
+    State(state): State<AuthState>,
+    Json(body): Json<VaultRecoveryRequest>,
+) -> impl IntoResponse {
+    let Some(ref vault) = state.gateway_state.vault else {
+        return (StatusCode::NOT_FOUND, "vault not initialized").into_response();
+    };
+
+    match vault.unseal_with_recovery(&body.recovery_key).await {
+        Ok(()) => {
+            // Migrate plaintext data to encrypted storage.
+            run_vault_migrations(&state).await;
+            Json(serde_json::json!({ "ok": true })).into_response()
+        },
+        Err(moltis_vault::VaultError::BadCredential) => {
+            (StatusCode::UNAUTHORIZED, "incorrect recovery key").into_response()
+        },
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }

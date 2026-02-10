@@ -383,6 +383,9 @@ pub struct GatewayState {
     /// Persistent metrics store (SQLite or other backend).
     #[cfg(feature = "metrics")]
     pub metrics_store: Option<Arc<dyn MetricsStore>>,
+    /// Encryption-at-rest vault (None if vault feature disabled or uninitialized).
+    #[cfg(feature = "vault")]
+    pub vault: Option<Arc<moltis_vault::Vault>>,
 
     // ── Atomics (lock-free) ─────────────────────────────────────────────────
     /// Monotonically increasing sequence counter for broadcast events.
@@ -414,6 +417,8 @@ impl GatewayState {
             None,
             #[cfg(feature = "metrics")]
             None,
+            #[cfg(feature = "vault")]
+            None,
         )
     }
 
@@ -433,6 +438,7 @@ impl GatewayState {
         deploy_platform: Option<String>,
         #[cfg(feature = "metrics")] metrics_handle: Option<MetricsHandle>,
         #[cfg(feature = "metrics")] metrics_store: Option<Arc<dyn MetricsStore>>,
+        #[cfg(feature = "vault")] vault: Option<Arc<moltis_vault::Vault>>,
     ) -> Arc<Self> {
         let hostname = hostname::get()
             .ok()
@@ -457,6 +463,8 @@ impl GatewayState {
             metrics_handle,
             #[cfg(feature = "metrics")]
             metrics_store,
+            #[cfg(feature = "vault")]
+            vault,
             seq: AtomicU64::new(0),
             tts_phrase_counter: AtomicUsize::new(0),
             inner: RwLock::new(GatewayInner::new(hook_registry)),

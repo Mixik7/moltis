@@ -42,6 +42,7 @@ moltis-sessions    = { workspace = true }
 moltis-skills      = { workspace = true }
 moltis-telegram    = { workspace = true }
 moltis-tools       = { workspace = true }
+moltis-vault       = { optional = true, workspace = true }
 moltis-voice       = { optional = true, workspace = true }
 p256               = { features = ["ecdsa"], optional = true, workspace = true }
 password-hash      = { workspace = true }
@@ -86,6 +87,7 @@ default = [
   "qmd",
   "tailscale",
   "tls",
+  "vault",
   "voice",
   "web-ui",
 ]
@@ -107,6 +109,7 @@ tls = [
   "dep:time",
   "dep:tokio-rustls",
 ]
+vault = ["dep:moltis-vault"]
 voice = ["dep:moltis-voice"]
 web-ui = ["dep:include_dir"]
 

@@ -64,10 +64,11 @@ which              = { workspace = true }
 tempfile = { workspace = true }
 
 [features]
-default            = ["push-notifications", "tailscale", "tls", "voice"]
+default            = ["push-notifications", "tailscale", "tls", "vault", "voice"]
 push-notifications = ["moltis-gateway/push-notifications"]
 tailscale          = ["moltis-gateway/tailscale"]
 tls                = ["moltis-gateway/tls"]
+vault              = ["moltis-gateway/vault"]
 voice              = ["moltis-gateway/voice"]
 
 [lints]
