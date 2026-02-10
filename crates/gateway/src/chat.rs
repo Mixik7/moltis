@@ -47,6 +47,7 @@ use crate::{
     broadcast::{BroadcastOpts, broadcast},
     chat_error::parse_chat_error,
     services::{ChatService, ModelService, ServiceResult},
+    session::extract_preview_from_value,
     state::GatewayState,
 };
 
@@ -2069,6 +2070,18 @@ impl ChatService for LiveChatService {
             warn!("failed to persist user message: {e}");
         }
 
+        // Set preview from the first user message if not already set.
+        if let Some(entry) = self.session_metadata.get(&session_key).await
+            && entry.preview.is_none()
+        {
+            let preview_text = extract_preview_from_value(&user_msg.to_value());
+            if let Some(preview) = preview_text {
+                self.session_metadata
+                    .set_preview(&session_key, Some(&preview))
+                    .await;
+            }
+        }
+
         let agent_timeout_secs = moltis_config::discover_and_load().tools.agent_timeout_secs;
 
         let message_queue = Arc::clone(&self.message_queue);
@@ -2224,7 +2237,9 @@ impl ChatService for LiveChatService {
                 match queue_mode {
                     MessageQueueMode::Followup => {
                         let mut iter = queued.into_iter();
-                        let first = iter.next().expect("queued is non-empty");
+                        let Some(first) = iter.next() else {
+                            return;
+                        };
                         // Put remaining messages back so the replayed run's
                         // own drain loop picks them up after it completes.
                         let rest: Vec<QueuedMessage> = iter.collect();
@@ -2253,7 +2268,10 @@ impl ChatService for LiveChatService {
                                 "replaying collected messages"
                             );
                             // Use the last queued message as the base params, override text.
-                            let mut merged = queued.last().unwrap().params.clone();
+                            let Some(last) = queued.last() else {
+                                return;
+                            };
+                            let mut merged = last.params.clone();
                             merged["text"] = serde_json::json!(combined.join("\n\n"));
                             if let Err(e) = chat.send(merged).await {
                                 warn!(session = %session_key_clone, error = %e, "failed to replay collected messages");
@@ -3537,6 +3555,18 @@ async fn run_with_tools(
                         .filter(|s| s.starts_with("data:image/"))
                         .map(String::from);
 
+                    // Extract location from show_map results for native pin
+                    let location_to_send = if name == "show_map" {
+                        result.as_ref().and_then(|r| {
+                            let lat = r.get("latitude")?.as_f64()?;
+                            let lon = r.get("longitude")?.as_f64()?;
+                            let label = r.get("label").and_then(|l| l.as_str()).map(String::from);
+                            Some((lat, lon, label))
+                        })
+                    } else {
+                        None
+                    };
+
                     if let Some(res) = result {
                         // Cap output sent to the UI to avoid huge WS frames.
                         let mut capped = res.clone();
@@ -3553,6 +3583,22 @@ async fn run_with_tools(
                             }
                         }
                         payload["result"] = capped;
+                    }
+
+                    // Send native location pin to channels before the screenshot
+                    if let Some((lat, lon, label)) = location_to_send {
+                        let state_clone = Arc::clone(&state);
+                        let sk_clone = sk.clone();
+                        tokio::spawn(async move {
+                            send_location_to_channels(
+                                &state_clone,
+                                &sk_clone,
+                                lat,
+                                lon,
+                                label.as_deref(),
+                            )
+                            .await;
+                        });
                     }
 
                     // Send screenshot to channel targets (Telegram) if present
@@ -3748,7 +3794,7 @@ async fn run_with_tools(
     // On context-window overflow, compact the session and retry once.
     let result = match first_result {
         Err(AgentRunError::ContextWindowExceeded(ref msg)) if session_store.is_some() => {
-            let store = session_store.unwrap();
+            let store = session_store?;
             info!(
                 run_id,
                 session = session_key,
@@ -3886,13 +3932,9 @@ async fn run_with_tools(
                 audio: audio_path.clone(),
                 seq: client_seq,
             };
-            broadcast(
-                state,
-                "chat",
-                serde_json::to_value(&final_payload).unwrap(),
-                BroadcastOpts::default(),
-            )
-            .await;
+            #[allow(clippy::unwrap_used)] // serializing known-valid struct
+            let payload_val = serde_json::to_value(&final_payload).unwrap();
+            broadcast(state, "chat", payload_val, BroadcastOpts::default()).await;
 
             if !is_silent {
                 // Send push notification when chat response completes
@@ -3924,13 +3966,9 @@ async fn run_with_tools(
                 error: error_obj,
                 seq: client_seq,
             };
-            broadcast(
-                state,
-                "chat",
-                serde_json::to_value(&error_payload).unwrap(),
-                BroadcastOpts::default(),
-            )
-            .await;
+            #[allow(clippy::unwrap_used)] // serializing known-valid struct
+            let payload_val = serde_json::to_value(&error_payload).unwrap();
+            broadcast(state, "chat", payload_val, BroadcastOpts::default()).await;
             None
         },
     }
@@ -4173,13 +4211,9 @@ async fn run_streaming(
                     audio: audio_path.clone(),
                     seq: client_seq,
                 };
-                broadcast(
-                    state,
-                    "chat",
-                    serde_json::to_value(&final_payload).unwrap(),
-                    BroadcastOpts::default(),
-                )
-                .await;
+                #[allow(clippy::unwrap_used)] // serializing known-valid struct
+                let payload_val = serde_json::to_value(&final_payload).unwrap();
+                broadcast(state, "chat", payload_val, BroadcastOpts::default()).await;
 
                 if !is_silent {
                     // Send push notification when chat response completes
@@ -4211,13 +4245,9 @@ async fn run_streaming(
                     error: error_obj,
                     seq: client_seq,
                 };
-                broadcast(
-                    state,
-                    "chat",
-                    serde_json::to_value(&error_payload).unwrap(),
-                    BroadcastOpts::default(),
-                )
-                .await;
+                #[allow(clippy::unwrap_used)] // serializing known-valid struct
+                let payload_val = serde_json::to_value(&error_payload).unwrap();
+                broadcast(state, "chat", payload_val, BroadcastOpts::default()).await;
                 return None;
             },
             // Tool events not expected in stream-only mode.
@@ -4359,9 +4389,13 @@ async fn deliver_channel_replies_to_targets(
             };
             let reply_to = target.message_id.as_deref();
             match target.channel_type {
-                moltis_channels::ChannelType::Telegram | moltis_channels::ChannelType::Whatsapp => {
-                    match tts_payload {
-                        Some(payload) => {
+                moltis_channels::ChannelType::Telegram => match tts_payload {
+                    Some(mut payload) => {
+                        let transcript = std::mem::take(&mut payload.text);
+
+                        // Short transcript fits as a caption on the voice message.
+                        if transcript.len() <= moltis_telegram::markdown::TELEGRAM_CAPTION_LIMIT {
+                            payload.text = transcript;
                             if let Err(e) = outbound
                                 .send_media(&target.account_id, &target.chat_id, &payload, reply_to)
                                 .await
@@ -4372,32 +4406,127 @@ async fn deliver_channel_replies_to_targets(
                                     "failed to send channel voice reply: {e}"
                                 );
                             }
-                        },
-                        None => {
-                            let result = if logbook_html.is_empty() {
+                            // Send logbook as a follow-up if present.
+                            if !logbook_html.is_empty()
+                                && let Err(e) = outbound
+                                    .send_text(
+                                        &target.account_id,
+                                        &target.chat_id,
+                                        &logbook_html,
+                                        None,
+                                    )
+                                    .await
+                            {
+                                warn!(
+                                    account_id = target.account_id,
+                                    chat_id = target.chat_id,
+                                    "failed to send logbook follow-up: {e}"
+                                );
+                            }
+                        } else {
+                            // Transcript too long for a caption — send voice
+                            // without caption, then the full text as a follow-up.
+                            if let Err(e) = outbound
+                                .send_media(&target.account_id, &target.chat_id, &payload, reply_to)
+                                .await
+                            {
+                                warn!(
+                                    account_id = target.account_id,
+                                    chat_id = target.chat_id,
+                                    "failed to send channel voice reply: {e}"
+                                );
+                            }
+                            let text_result = if logbook_html.is_empty() {
                                 outbound
-                                    .send_text(&target.account_id, &target.chat_id, &text, reply_to)
+                                    .send_text(
+                                        &target.account_id,
+                                        &target.chat_id,
+                                        &transcript,
+                                        None,
+                                    )
                                     .await
                             } else {
                                 outbound
                                     .send_text_with_suffix(
                                         &target.account_id,
                                         &target.chat_id,
-                                        &text,
+                                        &transcript,
                                         &logbook_html,
-                                        reply_to,
+                                        None,
                                     )
                                     .await
                             };
-                            if let Err(e) = result {
+                            if let Err(e) = text_result {
                                 warn!(
                                     account_id = target.account_id,
                                     chat_id = target.chat_id,
-                                    "failed to send channel reply: {e}"
+                                    "failed to send transcript follow-up: {e}"
                                 );
                             }
-                        },
-                    }
+                        }
+                    },
+                    None => {
+                        let result = if logbook_html.is_empty() {
+                            outbound
+                                .send_text(&target.account_id, &target.chat_id, &text, reply_to)
+                                .await
+                        } else {
+                            outbound
+                                .send_text_with_suffix(
+                                    &target.account_id,
+                                    &target.chat_id,
+                                    &text,
+                                    &logbook_html,
+                                    reply_to,
+                                )
+                                .await
+                        };
+                        if let Err(e) = result {
+                            warn!(
+                                account_id = target.account_id,
+                                chat_id = target.chat_id,
+                                "failed to send channel reply: {e}"
+                            );
+                        }
+                    },
+                },
+                moltis_channels::ChannelType::Whatsapp => match tts_payload {
+                    Some(payload) => {
+                        if let Err(e) = outbound
+                            .send_media(&target.account_id, &target.chat_id, &payload, reply_to)
+                            .await
+                        {
+                            warn!(
+                                account_id = target.account_id,
+                                chat_id = target.chat_id,
+                                "failed to send channel voice reply: {e}"
+                            );
+                        }
+                    },
+                    None => {
+                        let result = if logbook_html.is_empty() {
+                            outbound
+                                .send_text(&target.account_id, &target.chat_id, &text, reply_to)
+                                .await
+                        } else {
+                            outbound
+                                .send_text_with_suffix(
+                                    &target.account_id,
+                                    &target.chat_id,
+                                    &text,
+                                    &logbook_html,
+                                    reply_to,
+                                )
+                                .await
+                        };
+                        if let Err(e) = result {
+                            warn!(
+                                account_id = target.account_id,
+                                chat_id = target.chat_id,
+                                "failed to send channel reply: {e}"
+                            );
+                        }
+                    },
                 },
             }
         }));
@@ -4501,8 +4630,9 @@ async fn build_tts_payload(
         return None;
     }
 
-    // Layer 2: strip markdown/URLs the LLM may have included despite the prompt.
-    let text = moltis_voice::tts::sanitize_text_for_tts(text);
+    // Strip markdown/URLs the LLM may have included — use sanitized text
+    // only for TTS conversion, but keep the original for the caption.
+    let sanitized = moltis_voice::tts::sanitize_text_for_tts(text);
 
     let channel_key = format!("{}:{}", target.channel_type.as_str(), target.account_id);
     let (channel_override, session_override) = {
@@ -4515,7 +4645,7 @@ async fn build_tts_payload(
     let resolved = channel_override.or(session_override);
 
     let request = TtsConvertRequest {
-        text: &text,
+        text: &sanitized,
         format: "ogg",
         provider: resolved.as_ref().and_then(|o| o.provider.clone()),
         voice_id: resolved.as_ref().and_then(|o| o.voice_id.clone()),
@@ -4536,7 +4666,7 @@ async fn build_tts_payload(
         .unwrap_or_else(|| "audio/ogg".to_string());
 
     Some(ReplyPayload {
-        text: String::new(),
+        text: text.to_string(),
         media: Some(MediaAttachment {
             url: format!("data:{mime_type};base64,{}", response.audio),
             mime_type,
@@ -4727,6 +4857,67 @@ async fn send_screenshot_to_channels(
     }
 }
 
+/// Send a native location pin to all pending channel targets for a session.
+/// Uses `peek_channel_replies` so targets remain for the final text response.
+async fn send_location_to_channels(
+    state: &Arc<GatewayState>,
+    session_key: &str,
+    latitude: f64,
+    longitude: f64,
+    title: Option<&str>,
+) {
+    let targets = state.peek_channel_replies(session_key).await;
+    if targets.is_empty() {
+        return;
+    }
+
+    let outbound = match state.services.channel_outbound_arc() {
+        Some(o) => o,
+        None => return,
+    };
+
+    let title_owned = title.map(String::from);
+
+    let mut tasks = Vec::with_capacity(targets.len());
+    for target in targets {
+        let outbound = Arc::clone(&outbound);
+        let title_ref = title_owned.clone();
+        tasks.push(tokio::spawn(async move {
+            let reply_to = target.message_id.as_deref();
+            if let Err(e) = outbound
+                .send_location(
+                    &target.account_id,
+                    &target.chat_id,
+                    latitude,
+                    longitude,
+                    title_ref.as_deref(),
+                    reply_to,
+                )
+                .await
+            {
+                warn!(
+                    account_id = target.account_id,
+                    chat_id = target.chat_id,
+                    "failed to send location to channel: {e}"
+                );
+            } else {
+                debug!(
+                    account_id = target.account_id,
+                    chat_id = target.chat_id,
+                    "sent location pin to telegram"
+                );
+            }
+        }));
+    }
+
+    for task in tasks {
+        if let Err(e) = task.await {
+            warn!(error = %e, "channel location task join failed");
+        }
+    }
+}
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 #[cfg(test)]
 mod tests {
     use {
@@ -5640,5 +5831,77 @@ mod tests {
         let html = format_logbook_html(&entries);
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn extract_location_from_show_map_result() {
+        let result = serde_json::json!({
+            "latitude": 37.76,
+            "longitude": -122.42,
+            "label": "La Taqueria",
+            "screenshot": "data:image/png;base64,abc",
+            "map_links": {}
+        });
+
+        // Extraction logic mirrors the ToolCallEnd handler
+        let extracted = result
+            .get("latitude")
+            .and_then(|v| v.as_f64())
+            .and_then(|lat| {
+                let lon = result.get("longitude")?.as_f64()?;
+                let label = result
+                    .get("label")
+                    .and_then(|l| l.as_str())
+                    .map(String::from);
+                Some((lat, lon, label))
+            });
+
+        let (lat, lon, label) = extracted.unwrap();
+        assert!((lat - 37.76).abs() < f64::EPSILON);
+        assert!((lon - (-122.42)).abs() < f64::EPSILON);
+        assert_eq!(label.as_deref(), Some("La Taqueria"));
+    }
+
+    #[test]
+    fn extract_location_without_label() {
+        let result = serde_json::json!({
+            "latitude": 48.8566,
+            "longitude": 2.3522,
+            "screenshot": "data:image/png;base64,abc"
+        });
+
+        let extracted = result
+            .get("latitude")
+            .and_then(|v| v.as_f64())
+            .and_then(|lat| {
+                let lon = result.get("longitude")?.as_f64()?;
+                let label = result
+                    .get("label")
+                    .and_then(|l| l.as_str())
+                    .map(String::from);
+                Some((lat, lon, label))
+            });
+
+        let (lat, lon, label) = extracted.unwrap();
+        assert!((lat - 48.8566).abs() < f64::EPSILON);
+        assert!((lon - 2.3522).abs() < f64::EPSILON);
+        assert!(label.is_none());
+    }
+
+    #[test]
+    fn extract_location_missing_coords_returns_none() {
+        let result = serde_json::json!({
+            "screenshot": "data:image/png;base64,abc"
+        });
+
+        let extracted = result
+            .get("latitude")
+            .and_then(|v| v.as_f64())
+            .and_then(|_lat| {
+                let _lon = result.get("longitude")?.as_f64()?;
+                Some(())
+            });
+
+        assert!(extracted.is_none());
     }
 }

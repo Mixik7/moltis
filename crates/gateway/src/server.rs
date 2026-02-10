@@ -758,6 +758,7 @@ pub fn build_gateway_app(
 }
 
 /// Start the gateway HTTP + WebSocket server.
+#[allow(clippy::expect_used)] // Startup fail-fast: DB, migrations, credential store must succeed.
 pub async fn start_gateway(
     bind: &str,
     port: u16,
@@ -1918,9 +1919,12 @@ pub async fn start_gateway(
                     .map(|(n, _)| n.as_str())
                     .collect();
                 if embedding_providers.len() == 1 {
-                    let (name, provider) = embedding_providers.into_iter().next().unwrap();
-                    info!(provider = %name, "memory: using single embedding provider");
-                    Some(provider)
+                    if let Some((name, provider)) = embedding_providers.into_iter().next() {
+                        info!(provider = %name, "memory: using single embedding provider");
+                        Some(provider)
+                    } else {
+                        None
+                    }
                 } else {
                     info!(providers = ?names, active = names[0], "memory: fallback chain configured");
                     Some(Box::new(
@@ -2125,12 +2129,17 @@ pub async fn start_gateway(
         }
     };
 
+    let behind_proxy = std::env::var("MOLTIS_BEHIND_PROXY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
     let state = GatewayState::with_options(
         resolved_auth,
         services,
         Some(Arc::clone(&sandbox_router)),
         Some(Arc::clone(&credential_store)),
         is_localhost,
+        behind_proxy,
         tls_active_for_state,
         hook_registry.clone(),
         memory_manager.clone(),
@@ -3218,12 +3227,10 @@ async fn ws_upgrade_handler(
     // for the LLM to reason about locale or location.
     let remote_ip = extract_ws_client_ip(&headers, addr).filter(|ip| is_public_ip(ip));
 
-    let header_authenticated = websocket_header_authenticated(
-        &headers,
-        state.gateway.credential_store.as_ref(),
-        state.gateway.localhost_only,
-    )
-    .await;
+    let is_local = is_local_connection(&headers, addr, state.gateway.behind_proxy);
+    let header_authenticated =
+        websocket_header_authenticated(&headers, state.gateway.credential_store.as_ref(), is_local)
+            .await;
     ws.on_upgrade(move |socket| {
         handle_connection(
             socket,
@@ -3233,6 +3240,7 @@ async fn ws_upgrade_handler(
             accept_language,
             remote_ip,
             header_authenticated,
+            is_local,
         )
     })
     .into_response()
@@ -3304,10 +3312,78 @@ fn is_public_ip(ip: &str) -> bool {
     }
 }
 
+/// Returns `true` when the request carries headers typically set by reverse proxies.
+pub(crate) fn has_proxy_headers(headers: &axum::http::HeaderMap) -> bool {
+    headers.contains_key("x-forwarded-for")
+        || headers.contains_key("x-real-ip")
+        || headers.contains_key("cf-connecting-ip")
+        || headers.get("forwarded").is_some()
+}
+
+/// Returns `true` when `host` (without port) is a loopback name/address.
+fn is_loopback_host(host: &str) -> bool {
+    // Strip port (IPv6 bracket form, bare IPv6, or simple host:port).
+    let name = if host.starts_with('[') {
+        // [::1]:port or [::1]
+        host.rsplit_once("]:")
+            .map_or(host, |(addr, _)| addr)
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+    } else if host.matches(':').count() > 1 {
+        // Bare IPv6 like ::1 (multiple colons, no brackets) — no port stripping.
+        host
+    } else {
+        host.rsplit_once(':').map_or(host, |(addr, _)| addr)
+    };
+    matches!(name, "localhost" | "127.0.0.1" | "::1") || name.ends_with(".localhost")
+}
+
+/// Determine whether a connection is a **direct local** connection (no proxy
+/// in between).  This is the per-request check used by the three-tier auth
+/// model:
+///
+/// 1. Password set → always require auth
+/// 2. No password + local → full access (dev convenience)
+/// 3. No password + remote/proxied → onboarding only
+///
+/// A connection is considered local when **all** of the following hold:
+///
+/// - `MOLTIS_BEHIND_PROXY` is **not** set (`behind_proxy == false`)
+/// - No proxy headers are present (X-Forwarded-For, X-Real-IP, etc.)
+/// - The `Host` header resolves to a loopback address (or is absent)
+/// - The TCP source IP is loopback
+pub(crate) fn is_local_connection(
+    headers: &axum::http::HeaderMap,
+    remote_addr: std::net::SocketAddr,
+    behind_proxy: bool,
+) -> bool {
+    // Hard override: env var says we're behind a proxy.
+    if behind_proxy {
+        return false;
+    }
+
+    // Proxy headers present → proxied traffic.
+    if has_proxy_headers(headers) {
+        return false;
+    }
+
+    // Host header points to a non-loopback name → likely proxied.
+    if let Some(host) = headers
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        && !is_loopback_host(host)
+    {
+        return false;
+    }
+
+    // TCP source must be loopback.
+    remote_addr.ip().is_loopback()
+}
+
 async fn websocket_header_authenticated(
     headers: &axum::http::HeaderMap,
     credential_store: Option<&Arc<crate::auth::CredentialStore>>,
-    localhost_only: bool,
+    is_local: bool,
 ) -> bool {
     let Some(store) = credential_store else {
         return false;
@@ -3317,7 +3393,8 @@ async fn websocket_header_authenticated(
         return true;
     }
 
-    if localhost_only && !store.has_password().await.unwrap_or(true) {
+    // Three-tier model: local connection + no password = dev convenience.
+    if is_local && !store.has_password().await.unwrap_or(true) {
         return true;
     }
 
@@ -3729,6 +3806,7 @@ async fn oauth_callback_handler(
 #[cfg(feature = "web-ui")]
 async fn spa_fallback(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: axum::http::HeaderMap,
     uri: axum::http::Uri,
 ) -> impl IntoResponse {
@@ -3738,7 +3816,7 @@ async fn spa_fallback(
     }
 
     let onboarded = onboarding_completed(&state.gateway).await;
-    let setup_required = auth_status_from_request(&state, &headers)
+    let setup_required = auth_status_from_request(&state, &headers, addr)
         .await
         .map(|(setup_required, _authenticated)| setup_required)
         .unwrap_or(false);
@@ -3751,10 +3829,11 @@ async fn spa_fallback(
 #[cfg(feature = "web-ui")]
 async fn onboarding_handler(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     let onboarded = onboarding_completed(&state.gateway).await;
-    let setup_required = auth_status_from_request(&state, &headers)
+    let setup_required = auth_status_from_request(&state, &headers, addr)
         .await
         .map(|(setup_required, _authenticated)| setup_required)
         .unwrap_or(false);
@@ -3820,13 +3899,14 @@ async fn render_spa_template(
 async fn auth_status_from_request(
     state: &AppState,
     headers: &axum::http::HeaderMap,
+    remote_addr: std::net::SocketAddr,
 ) -> Option<(bool, bool)> {
     let store = state.gateway.credential_store.as_ref()?;
 
     let auth_disabled = store.is_auth_disabled();
-    let localhost_only = state.gateway.localhost_only;
     let has_password = store.has_password().await.unwrap_or(false);
-    let auth_bypassed = auth_disabled || (localhost_only && !has_password);
+    let is_local = is_local_connection(headers, remote_addr, state.gateway.behind_proxy);
+    let auth_bypassed = auth_disabled || (is_local && !has_password);
 
     let authenticated = if auth_bypassed {
         true
@@ -5052,6 +5132,7 @@ pub(crate) async fn discover_and_build_hooks(
     (Some(Arc::new(registry)), info_list)
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 #[cfg(test)]
 mod tests {
     use {super::*, std::collections::HashSet};
@@ -5211,6 +5292,31 @@ mod tests {
         let headers = axum::http::HeaderMap::new();
 
         assert!(!websocket_header_authenticated(&headers, Some(&store), false).await);
+    }
+
+    /// Regression test for proxy auth bypass: when a password is set, the
+    /// local-no-password shortcut must NOT grant access — even when the
+    /// connection is local (is_local = true).  Behind a reverse proxy on
+    /// the same machine every request appears to come from 127.0.0.1,
+    /// so trusting loopback alone would bypass authentication for all
+    /// internet traffic.  See CVE-2026-25253 for the analogous OpenClaw
+    /// vulnerability.
+    #[tokio::test]
+    async fn websocket_header_auth_rejects_local_when_password_set() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let store = Arc::new(
+            crate::auth::CredentialStore::with_config(pool, &moltis_config::AuthConfig::default())
+                .await
+                .unwrap(),
+        );
+        store.set_initial_password("supersecret").await.unwrap();
+        let headers = axum::http::HeaderMap::new();
+
+        // is_local = true but password is set → must reject.
+        assert!(
+            !websocket_header_authenticated(&headers, Some(&store), true).await,
+            "local connection must not bypass auth when a password is configured"
+        );
     }
 
     #[test]
@@ -5418,5 +5524,159 @@ mod tests {
             assert!(!display.ip().is_unspecified());
             assert_eq!(display.port(), 9999);
         }
+    }
+
+    // ── is_local_connection / proxy header detection tests ───────────────
+
+    #[test]
+    fn has_proxy_headers_detects_xff() {
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("x-forwarded-for", "203.0.113.50".parse().unwrap());
+        assert!(has_proxy_headers(&h));
+    }
+
+    #[test]
+    fn has_proxy_headers_detects_x_real_ip() {
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("x-real-ip", "203.0.113.50".parse().unwrap());
+        assert!(has_proxy_headers(&h));
+    }
+
+    #[test]
+    fn has_proxy_headers_detects_cf_connecting_ip() {
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("cf-connecting-ip", "203.0.113.50".parse().unwrap());
+        assert!(has_proxy_headers(&h));
+    }
+
+    #[test]
+    fn has_proxy_headers_detects_forwarded() {
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("forwarded", "for=203.0.113.50".parse().unwrap());
+        assert!(has_proxy_headers(&h));
+    }
+
+    #[test]
+    fn has_proxy_headers_empty() {
+        assert!(!has_proxy_headers(&axum::http::HeaderMap::new()));
+    }
+
+    #[test]
+    fn is_loopback_host_variants() {
+        assert!(is_loopback_host("localhost"));
+        assert!(is_loopback_host("localhost:18789"));
+        assert!(is_loopback_host("127.0.0.1"));
+        assert!(is_loopback_host("127.0.0.1:18789"));
+        assert!(is_loopback_host("::1"));
+        assert!(is_loopback_host("[::1]:18789"));
+        assert!(is_loopback_host("moltis.localhost"));
+        assert!(is_loopback_host("moltis.localhost:8080"));
+
+        assert!(!is_loopback_host("example.com"));
+        assert!(!is_loopback_host("example.com:18789"));
+        assert!(!is_loopback_host("192.168.1.1:18789"));
+        assert!(!is_loopback_host("moltis.example.com"));
+    }
+
+    #[test]
+    fn local_connection_direct_loopback() {
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "localhost:18789".parse().unwrap());
+        assert!(is_local_connection(&headers, addr, false));
+    }
+
+    #[test]
+    fn local_connection_ipv6_loopback() {
+        let addr: SocketAddr = "[::1]:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "[::1]:18789".parse().unwrap());
+        assert!(is_local_connection(&headers, addr, false));
+    }
+
+    #[test]
+    fn local_connection_no_host_header() {
+        // CLI/SDK clients may not send a Host header.
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let headers = axum::http::HeaderMap::new();
+        assert!(is_local_connection(&headers, addr, false));
+    }
+
+    #[test]
+    fn not_local_when_behind_proxy_env() {
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "localhost:18789".parse().unwrap());
+        // behind_proxy = true overrides everything.
+        assert!(!is_local_connection(&headers, addr, true));
+    }
+
+    #[test]
+    fn not_local_when_proxy_headers_present() {
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "localhost:18789".parse().unwrap());
+        headers.insert("x-forwarded-for", "203.0.113.50".parse().unwrap());
+        assert!(!is_local_connection(&headers, addr, false));
+    }
+
+    #[test]
+    fn not_local_when_host_is_external() {
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::header::HOST,
+            "moltis.example.com".parse().unwrap(),
+        );
+        assert!(!is_local_connection(&headers, addr, false));
+    }
+
+    #[test]
+    fn not_local_when_remote_ip_not_loopback() {
+        let addr: SocketAddr = "203.0.113.50:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "localhost:18789".parse().unwrap());
+        assert!(!is_local_connection(&headers, addr, false));
+    }
+
+    /// Simulates a reverse proxy (Caddy/nginx) on the same machine that
+    /// does NOT add proxy headers (bare nginx `proxy_pass`). The Host header
+    /// is rewritten to the upstream (loopback) address and the TCP source is
+    /// loopback. Without `MOLTIS_BEHIND_PROXY`, this would appear local.
+    #[test]
+    fn bare_proxy_without_env_var_appears_local() {
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "127.0.0.1:18789".parse().unwrap());
+        // This is the known limitation: bare proxy looks like local.
+        assert!(is_local_connection(&headers, addr, false));
+        // Setting MOLTIS_BEHIND_PROXY fixes it.
+        assert!(!is_local_connection(&headers, addr, true));
+    }
+
+    /// Typical Caddy/nginx with proper headers: loopback TCP but
+    /// X-Forwarded-For reveals the real client IP.
+    #[test]
+    fn proxy_with_xff_detected() {
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::header::HOST,
+            "moltis.example.com".parse().unwrap(),
+        );
+        headers.insert("x-forwarded-for", "203.0.113.50".parse().unwrap());
+        assert!(!is_local_connection(&headers, addr, false));
+    }
+
+    /// Proxy that rewrites Host to a public domain (but no XFF).
+    #[test]
+    fn proxy_detected_via_host_header() {
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::header::HOST,
+            "moltis.example.com".parse().unwrap(),
+        );
+        assert!(!is_local_connection(&headers, addr, false));
     }
 }

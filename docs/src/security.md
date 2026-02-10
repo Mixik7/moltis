@@ -167,28 +167,26 @@ The gateway API uses role-based access control with scopes:
 
 ### API Keys
 
-API keys authenticate external tools and scripts connecting to Moltis. Keys can
-have **full access** (all scopes) or be restricted to specific scopes for
-defense-in-depth.
+API keys authenticate external tools and scripts connecting to Moltis. Keys
+**must specify at least one scope** — keys without scopes are denied access
+(least-privilege by default).
 
 #### Creating API Keys
 
 **Web UI**: Settings > Security > API Keys
 
 1. Enter a label describing the key's purpose
-2. Choose "Full access" or select specific scopes
+2. Select the required scopes
 3. Click "Generate key"
 4. **Copy the key immediately** — it's only shown once
 
 **CLI**:
 
 ```bash
-# Full access key
-moltis auth create-api-key --label "CI pipeline"
-
 # Scoped key (comma-separated scopes)
 moltis auth create-api-key --label "Monitor" --scopes "operator.read"
 moltis auth create-api-key --label "Automation" --scopes "operator.read,operator.write"
+moltis auth create-api-key --label "CI pipeline" --scopes "operator.admin"
 ```
 
 #### Using API Keys
@@ -218,15 +216,15 @@ Authorization: Bearer mk_abc123...
 | Read-only monitoring | `operator.read` |
 | Automated workflows | `operator.read`, `operator.write` |
 | Approval handling | `operator.read`, `operator.approvals` |
-| Full automation | Full access (no scope restrictions) |
+| Full automation | `operator.admin` |
 
 **Best practice**: Use the minimum necessary scopes. If a key only needs to
 read status and logs, don't grant `operator.write`.
 
 #### Backward Compatibility
 
-Existing API keys (created before scopes were added) have full access. Newly
-created keys without explicit scopes also have full access.
+Existing API keys created without scopes will be **denied access** until
+scopes are added. Re-create keys with explicit scopes to restore access.
 
 ## Network Security
 
@@ -253,6 +251,94 @@ WebSocket hijacking (CSWSH). Connections from untrusted origins are rejected.
 The `web_fetch` tool resolves DNS and blocks requests to private IP ranges
 (loopback, RFC 1918, link-local, CGNAT). This prevents server-side request
 forgery attacks.
+
+## Three-Tier Authentication Model
+
+Moltis uses a per-request three-tier authentication model that balances
+local development convenience with production security:
+
+| Tier | Condition | Behaviour |
+|------|-----------|-----------|
+| **1** | Password/passkey is set | Auth **always** required (any IP) |
+| **2** | No password + direct local connection | Full access (dev convenience) |
+| **3** | No password + remote/proxied connection | Onboarding only (setup code required) |
+
+### How "local" is determined
+
+Each incoming request is classified as **local** or **remote** using
+four checks that must **all** pass:
+
+1. `MOLTIS_BEHIND_PROXY` env var is **not** set (hard override)
+2. No proxy headers present (`X-Forwarded-For`, `X-Real-IP`,
+   `CF-Connecting-IP`, `Forwarded`)
+3. The `Host` header resolves to a loopback address (or is absent)
+4. The TCP source IP is loopback (`127.0.0.1`, `::1`)
+
+If **any** check fails, the connection is treated as remote.
+
+### Practical implications
+
+| Scenario | No password | Password set |
+|----------|-------------|-------------|
+| Local browser → `localhost:18789` | Full access | Auth required |
+| Local CLI/wscat → `localhost:18789` | Full access | Auth required |
+| Internet → Caddy (with XFF) → `127.0.0.1:18789` | Onboarding only | Auth required |
+| Internet → nginx (with `proxy_set_header`) → `127.0.0.1:18789` | Onboarding only | Auth required |
+| Internet → bare nginx (`proxy_pass` only) → `127.0.0.1:18789` | **See below** | Auth required |
+| Server bound to `0.0.0.0`, remote client | Onboarding only | Auth required |
+
+## Reverse Proxy Deployments
+
+Running Moltis behind a reverse proxy (Caddy, nginx, Traefik, etc.)
+requires understanding how authentication interacts with loopback
+connections.
+
+### The problem
+
+When Moltis binds to `127.0.0.1` and a proxy on the same machine
+forwards traffic to it, **every** incoming TCP connection appears to
+originate from `127.0.0.1` — including requests from the public
+internet.  A naive "trust all loopback connections" check would bypass
+authentication for all proxied traffic.
+
+This is the same class of vulnerability as
+[CVE-2026-25253](https://github.com/openclaw/openclaw/security/advisories/GHSA-g8p2-7wf7-98mq),
+which allowed one-click remote code execution on OpenClaw through
+authentication token exfiltration and cross-site WebSocket hijacking.
+
+### How Moltis handles it
+
+Moltis uses the per-request `is_local_connection()` check described
+above.  Most reverse proxies add forwarding headers or change the
+`Host` header, which automatically triggers the "remote" classification.
+
+For proxies that **strip all signals** (e.g. a bare nginx `proxy_pass`
+that rewrites `Host` to the upstream address and adds no `X-Forwarded-For`),
+use the `MOLTIS_BEHIND_PROXY` environment variable as a hard override:
+
+```bash
+MOLTIS_BEHIND_PROXY=true moltis
+```
+
+When this variable is set, **all** connections are treated as remote —
+no loopback bypass, no exceptions.
+
+### Deploying behind a proxy
+
+1. **Set `MOLTIS_BEHIND_PROXY=true`** if your proxy does not add
+   forwarding headers (safest option — eliminates any ambiguity).
+
+2. **Set a password or register a passkey** during initial setup.
+   Once a password is configured (Tier 1), authentication is required
+   for all traffic regardless of `is_local_connection()`.
+
+3. **WebSocket proxying** must forward the `Origin` and `Host` headers
+   correctly.  Moltis validates same-origin on WebSocket upgrades to
+   prevent cross-site WebSocket hijacking (CSWSH).
+
+4. **TLS termination** should happen at the proxy.  Moltis can also
+   serve TLS directly (`[tls] enabled = true`), but most proxy setups
+   handle certificates at the edge.
 
 ## Production Recommendations
 

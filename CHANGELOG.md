@@ -48,6 +48,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Web UI), configuration reference, access control, session persistence,
   self-chat, media handling, and troubleshooting.
 
+## [0.5.0] - 2026-02-09
+
+### Added
+
+- **`moltis doctor` command**: Comprehensive health check that validates config,
+  audits security (file permissions, API keys in config), checks directory and
+  database health, verifies provider readiness (API keys via config or env vars),
+  inspects TLS certificates, and validates MCP server commands on PATH.
+
+### Security
+
+- **npm install --ignore-scripts**: Skill dependency installation now passes
+  `--ignore-scripts` to npm, preventing supply chain attacks via malicious
+  postinstall scripts in npm packages.
+- **API key scope enforcement**: API keys with empty/no scopes are now denied
+  access instead of silently receiving full admin privileges. Keys must specify
+  at least one scope explicitly (least-privilege by default).
 ## [0.4.1] - 2026-02-09
 
 ### Fixed
