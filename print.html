@@ -277,6 +277,7 @@ moltis
 <li><strong><a href="quickstart.html">Quickstart</a></strong> — Up and running in 5 minutes</li>
 <li><strong><a href="installation.html">Installation</a></strong> — All installation methods</li>
 <li><strong><a href="configuration.html">Configuration</a></strong> — <code>moltis.toml</code> reference</li>
+<li><strong><a href="e2e-testing.html">End-to-End Testing</a></strong> — Browser regression coverage for the web UI</li>
 </ul>
 <h3 id="features"><a class="header" href="#features">Features</a></h3>
 <ul>
@@ -796,6 +797,66 @@ not already available.</li>
 <p>This local-first flow is for pull requests. Full CI still runs on GitHub
 runners for non-PR events (for example push to <code>main</code>, scheduled runs, and
 release paths).</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="end-to-end-testing"><a class="header" href="#end-to-end-testing">End-to-End Testing</a></h1>
+<p>This project uses Playwright to run browser-level tests against a real <code>moltis</code> gateway process.</p>
+<p>The goal is simple: catch web UI regressions before they ship.</p>
+<h2 id="why-this-approach"><a class="header" href="#why-this-approach">Why This Approach</a></h2>
+<ul>
+<li>Tests run in a real browser (Chromium), not a DOM mock.</li>
+<li>Tests hit real gateway routes and WebSocket behavior.</li>
+<li>Runtime state is isolated so local machine config does not leak into test outcomes.</li>
+</ul>
+<h2 id="current-setup"><a class="header" href="#current-setup">Current Setup</a></h2>
+<p>The e2e harness lives in <code>crates/gateway/ui</code>:</p>
+<ul>
+<li><code>playwright.config.js</code> configures Playwright and web server startup.</li>
+<li><code>e2e/start-gateway.sh</code> boots the gateway in deterministic test mode.</li>
+<li><code>e2e/specs/smoke.spec.js</code> contains smoke coverage for critical routes.</li>
+</ul>
+<h2 id="how-startup-works"><a class="header" href="#how-startup-works">How Startup Works</a></h2>
+<p><code>e2e/start-gateway.sh</code>:</p>
+<ol>
+<li>Creates isolated runtime directories under <code>target/e2e-runtime</code>.</li>
+<li>Seeds <code>IDENTITY.md</code> and <code>USER.md</code> so onboarding does not block tests.</li>
+<li>Exports <code>MOLTIS_CONFIG_DIR</code>, <code>MOLTIS_DATA_DIR</code>, and test port env.</li>
+<li>Starts the gateway with:</li>
+</ol>
+<pre><code class="language-bash">cargo run --bin moltis -- --no-tls --bind 127.0.0.1 --port &lt;PORT&gt;
+</code></pre>
+<p><code>--no-tls</code> is intentional here so Playwright can probe <code>http://.../health</code> during readiness checks.</p>
+<h2 id="running-e2e"><a class="header" href="#running-e2e">Running E2E</a></h2>
+<p>From repo root (recommended):</p>
+<pre><code class="language-bash">just ui-e2e-install
+just ui-e2e
+</code></pre>
+<p>Headed mode:</p>
+<pre><code class="language-bash">just ui-e2e-headed
+</code></pre>
+<p>Directly from <code>crates/gateway/ui</code>:</p>
+<pre><code class="language-bash">npm install
+npm run e2e:install
+npm run e2e
+</code></pre>
+<h2 id="test-artifacts"><a class="header" href="#test-artifacts">Test Artifacts</a></h2>
+<p>On failures, Playwright stores artifacts in:</p>
+<ul>
+<li><code>crates/gateway/ui/test-results/</code> (screenshots, video, traces)</li>
+<li><code>crates/gateway/ui/playwright-report/</code> (HTML report)</li>
+</ul>
+<p>Open a trace with:</p>
+<pre><code class="language-bash">cd crates/gateway/ui
+npx playwright show-trace test-results/&lt;test-dir&gt;/trace.zip
+</code></pre>
+<h2 id="writing-stable-tests"><a class="header" href="#writing-stable-tests">Writing Stable Tests</a></h2>
+<ul>
+<li>Prefer stable IDs/selectors over broad text matching.</li>
+<li>Assert route + core UI state, avoid over-asserting cosmetic details.</li>
+<li>Keep smoke tests fast and deterministic.</li>
+<li>Add focused scenario tests for high-risk features (chat send flow, settings persistence, skills, projects, crons).</li>
+</ul>
+<h2 id="ci-integration"><a class="header" href="#ci-integration">CI Integration</a></h2>
+<p>The <code>just ui-e2e</code> target is the intended command for CI.</p>
+<p>When adding CI coverage, gate pull requests on this target so UI regressions fail fast.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="llm-providers-1"><a class="header" href="#llm-providers-1">LLM Providers</a></h1>
 <p>Moltis supports 30+ LLM providers through a trait-based architecture. Configure providers through the web UI or directly in configuration files.</p>
 <h2 id="supported-providers"><a class="header" href="#supported-providers">Supported Providers</a></h2>
@@ -5006,6 +5067,13 @@ event names in the config file.</li>
 <li><strong>Hooks documentation</strong>: Rewritten <code>docs/src/hooks.md</code> with complete event
 reference, corrected <code>ToolResultPersist</code> classification (modifying, not
 read-only), and new “Prompt Injection Filtering” section with examples.</li>
+<li><strong>Logs level filter UI</strong>: Settings -&gt; Logs now shows <code>DEBUG</code>/<code>TRACE</code> level
+options only when they are enabled by the active tracing filter (including
+target-specific directives). Default view remains <code>INFO</code> and above.</li>
+<li><strong>Logs level filter control</strong>: Settings -&gt; Logs now uses the same combo
+dropdown pattern as the chat model selector for consistent UX.</li>
+<li><strong>Branch favicon contrast</strong>: Non-main branches now use a high-contrast purple
+favicon variant so branch sessions are visually distinct from <code>main</code>.</li>
 </ul>
 <h3 id="security-2"><a class="header" href="#security-2">Security</a></h3>
 <ul>

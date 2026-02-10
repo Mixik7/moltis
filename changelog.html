@@ -204,6 +204,13 @@ event names in the config file.</li>
 <li><strong>Hooks documentation</strong>: Rewritten <code>docs/src/hooks.md</code> with complete event
 reference, corrected <code>ToolResultPersist</code> classification (modifying, not
 read-only), and new “Prompt Injection Filtering” section with examples.</li>
+<li><strong>Logs level filter UI</strong>: Settings -&gt; Logs now shows <code>DEBUG</code>/<code>TRACE</code> level
+options only when they are enabled by the active tracing filter (including
+target-specific directives). Default view remains <code>INFO</code> and above.</li>
+<li><strong>Logs level filter control</strong>: Settings -&gt; Logs now uses the same combo
+dropdown pattern as the chat model selector for consistent UX.</li>
+<li><strong>Branch favicon contrast</strong>: Non-main branches now use a high-contrast purple
+favicon variant so branch sessions are visually distinct from <code>main</code>.</li>
 </ul>
 <h3 id="security"><a class="header" href="#security">Security</a></h3>
 <ul>
