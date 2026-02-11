@@ -123,31 +123,35 @@ if ! cargo fetch --locked 2>/dev/null; then
   fi
 fi
 
-# Reject dirty working trees in all modes. Validating with uncommitted changes
-# gives misleading results (local-only) or publishes statuses for the wrong
-# content (PR mode).
-if ! git diff --quiet --ignore-submodules -- || \
-   ! git diff --cached --quiet --ignore-submodules -- || \
-   [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
-  cat >&2 <<EOF
+# Reject dirty working trees in PR mode. Validating with uncommitted changes
+# publishes statuses for the wrong content. In local-only mode (no PR) we
+# allow a dirty tree so developers can lint/test without committing first.
+if [[ "$LOCAL_ONLY" -eq 0 ]]; then
+  if ! git diff --quiet --ignore-submodules -- || \
+     ! git diff --cached --quiet --ignore-submodules -- || \
+     [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+    cat >&2 <<EOF
 Working tree is not clean.
 
 Commit or stash all local changes (including untracked files) before running
-local validation.
+local validation with a PR number.
 EOF
-  exit 1
+    exit 1
+  fi
 fi
 
-fmt_cmd="${LOCAL_VALIDATE_FMT_CMD:-cargo +nightly fmt --all -- --check}"
+nightly_toolchain="${LOCAL_VALIDATE_NIGHTLY_TOOLCHAIN:-nightly-2025-11-30}"
+fmt_cmd="${LOCAL_VALIDATE_FMT_CMD:-cargo +${nightly_toolchain} fmt --all -- --check}"
 biome_cmd="${LOCAL_VALIDATE_BIOME_CMD:-biome ci --diagnostic-level=error crates/gateway/src/assets/js/}"
 zizmor_cmd="${LOCAL_VALIDATE_ZIZMOR_CMD:-zizmor . --min-severity high >/dev/null 2>&1 || true}"
-lint_cmd="${LOCAL_VALIDATE_LINT_CMD:-cargo clippy --workspace --all-features -- -D warnings}"
+lint_cmd="${LOCAL_VALIDATE_LINT_CMD:-cargo +${nightly_toolchain} clippy -Z unstable-options --workspace --all-features --all-targets --timings -- -D warnings}"
 test_cmd="${LOCAL_VALIDATE_TEST_CMD:-cargo test --all-features}"
+e2e_cmd="${LOCAL_VALIDATE_E2E_CMD:-cd crates/gateway/ui && if [ ! -d node_modules ]; then npm ci; fi && npm run e2e:install && npm run e2e}"
 coverage_cmd="${LOCAL_VALIDATE_COVERAGE_CMD:-cargo llvm-cov --workspace --all-features --html}"
 
 if [[ "$(uname -s)" == "Darwin" ]] && ! command -v nvcc >/dev/null 2>&1; then
   if [[ -z "${LOCAL_VALIDATE_LINT_CMD:-}" ]]; then
-    lint_cmd="cargo clippy --workspace -- -D warnings"
+    lint_cmd="cargo +${nightly_toolchain} clippy -Z unstable-options --workspace --all-targets --timings -- -D warnings"
   fi
   if [[ -z "${LOCAL_VALIDATE_TEST_CMD:-}" ]]; then
     test_cmd="cargo test"
@@ -155,8 +159,8 @@ if [[ "$(uname -s)" == "Darwin" ]] && ! command -v nvcc >/dev/null 2>&1; then
   if [[ -z "${LOCAL_VALIDATE_COVERAGE_CMD:-}" ]]; then
     coverage_cmd="cargo llvm-cov --workspace --html"
   fi
-  echo "Detected macOS without nvcc; using non-CUDA local validation commands." >&2
-  echo "Override with LOCAL_VALIDATE_LINT_CMD / LOCAL_VALIDATE_TEST_CMD if needed." >&2
+  echo "Detected macOS without nvcc; using non-CUDA local defaults (no --all-features)." >&2
+  echo "Override with LOCAL_VALIDATE_LINT_CMD / LOCAL_VALIDATE_TEST_CMD / LOCAL_VALIDATE_COVERAGE_CMD if needed." >&2
 fi
 
 ensure_zizmor() {
@@ -368,6 +372,13 @@ run_check "local/lockfile" "cargo fetch --locked"
 # These do not wait on local/zizmor (advisory and non-blocking).
 run_check "local/lint" "$lint_cmd"
 run_check "local/test" "$test_cmd"
+
+# Gateway web UI e2e tests.
+if [[ "${LOCAL_VALIDATE_SKIP_E2E:-0}" != "1" ]]; then
+  run_check "local/e2e" "$e2e_cmd"
+else
+  echo "Skipping E2E checks (LOCAL_VALIDATE_SKIP_E2E=1)."
+fi
 
 # Coverage (optional — requires cargo-llvm-cov).
 # Skipped silently when the tool is not installed. Disable explicitly with

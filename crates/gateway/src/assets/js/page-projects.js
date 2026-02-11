@@ -7,12 +7,15 @@ import { useEffect, useRef } from "preact/hooks";
 import { sendRpc } from "./helpers.js";
 import { fetchProjects } from "./projects.js";
 import { registerPage } from "./router.js";
+import { routes } from "./routes.js";
 import * as S from "./state.js";
 import { projects as projectsSig } from "./stores/project-store.js";
+import { ConfirmDialog, requestConfirm } from "./ui.js";
 
 var completions = signal([]);
 var editingProject = signal(null);
 var detecting = signal(false);
+var clearing = signal(false);
 
 function PathInput(props) {
 	var inputRef = useRef(null);
@@ -237,7 +240,33 @@ function ProjectsPage() {
 		});
 	}
 
+	function onClearAll() {
+		if (clearing.value) return;
+		requestConfirm(
+			"Clear all repositories from Moltis? This only removes them from the list and does not delete files on disk.",
+			{
+				confirmLabel: "Clear all",
+				danger: true,
+			},
+		).then((yes) => {
+			if (!yes) return;
+			var ids = projectsSig.value.map((p) => p.id);
+			if (ids.length === 0) return;
+			clearing.value = true;
+			var chain = Promise.resolve();
+			for (const id of ids) {
+				chain = chain.then(() => sendRpc("projects.delete", { id: id }));
+			}
+			chain
+				.then(() => fetchProjects())
+				.finally(() => {
+					clearing.value = false;
+				});
+		});
+	}
+
 	var list = projectsSig.value;
+	var clearDisabled = clearing.value || detecting.value || list.length === 0;
 
 	return html`
     <div class="flex-1 flex flex-col min-w-0 p-4 gap-4 overflow-y-auto">
@@ -248,7 +277,18 @@ function ProjectsPage() {
           title="Scan common locations for git repositories and add them as projects">
           ${detecting.value ? "Detecting\u2026" : "Auto-detect"}
         </button>
+        <button
+          class="provider-btn provider-btn-danger"
+          onClick=${onClearAll}
+          disabled=${clearDisabled}
+          title="Remove all repository entries from Moltis without deleting files on disk"
+        >
+          ${clearing.value ? "Clearing\u2026" : "Clear All"}
+        </button>
       </div>
+      <p class="text-xs text-[var(--muted)] max-w-form">
+        Clear All only removes repository entries from Moltis, it does not delete anything from disk.
+      </p>
       <p class="text-sm text-[var(--muted)]" style="max-width:600px;margin:0;">
         Projects bind sessions to a codebase directory. When a session is linked to a project, context files (CLAUDE.md, AGENTS.md) are loaded automatically and a custom system prompt can be injected. Enable auto-worktree to give each session its own git branch for isolated work.
       </p>
@@ -273,12 +313,13 @@ function ProjectsPage() {
 						: html`<${ProjectCard} key=${p.id} project=${p} />`,
 				)}
       </div>
+      <${ConfirmDialog} />
     </div>
   `;
 }
 
 registerPage(
-	"/projects",
+	routes.projects,
 	function initProjects(container) {
 		container.style.cssText = "flex-direction:column;padding:0;overflow:hidden;";
 		editingProject.value = null;

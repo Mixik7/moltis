@@ -198,6 +198,18 @@ body {
     width: 14px;
     height: 14px;
   }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .header-link-btn {
+    padding: 7px;
+  }
+
+  .header-link-label {
+    display: none;
+  }
 }
 
 /* ── Chat Area Mobile Styles ── */
@@ -345,7 +357,6 @@ body {
   .provider-btn,
   .cron-action-btn,
   .logs-btn,
-  .auth-submit,
   [role="button"] {
     min-height: 44px;
   }

@@ -17,35 +17,54 @@ test("app shell loads chat route instead of onboarding", async ({ page }) => {
 	expect(pageErrors).toEqual([]);
 });
 
+test("index page exposes OG and Twitter share metadata", async ({ page }) => {
+	const pageErrors = watchPageErrors(page);
+
+	await page.goto("/");
+	await expect(page).toHaveURL(/\/chats\/main$/);
+
+	await expect.poll(() => page.locator('meta[property="og:title"]').getAttribute("content")).toContain("AI assistant");
+	await expect.poll(() => page.locator('meta[property="og:description"]').getAttribute("content")).toContain(
+		"personal AI assistant",
+	);
+	await expect(page.locator('meta[property="og:image"]')).toHaveAttribute(
+		"content",
+		"https://www.moltis.org/og-social.jpg?v=4",
+	);
+	await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute("content", "summary_large_image");
+	await expect(page.locator('meta[name="twitter:image"]')).toHaveAttribute(
+		"content",
+		"https://www.moltis.org/og-social.jpg?v=4",
+	);
+
+	expect(pageErrors).toEqual([]);
+});
+
 const routeCases = [
 	{
 		path: "/crons/jobs",
 		expectedUrl: /\/crons\/jobs$/,
-		activeNav: "/crons",
 		heading: "Cron Jobs",
 	},
 	{
 		path: "/monitoring",
 		expectedUrl: /\/monitoring$/,
-		activeNav: "/monitoring",
 		heading: "Monitoring",
 	},
 	{
 		path: "/skills",
 		expectedUrl: /\/skills$/,
-		activeNav: "/skills",
 		heading: "Skills",
 	},
 	{
 		path: "/projects",
 		expectedUrl: /\/projects$/,
-		activeNav: "/projects",
 		heading: "Repositories",
 	},
 	{
 		path: "/settings",
 		expectedUrl: /\/settings\/identity$/,
-		activeNav: "/settings",
+		settingsActive: true,
 		heading: "Identity",
 	},
 ];
@@ -58,7 +77,9 @@ for (const routeCase of routeCases) {
 
 		await expect(page).toHaveURL(routeCase.expectedUrl);
 		await expectPageContentMounted(page);
-		await expect(page.locator(`a.nav-link[href="${routeCase.activeNav}"]`)).toHaveClass(/active/);
+		if (routeCase.settingsActive) {
+			await expect(page.locator("#settingsBtn")).toHaveClass(/active/);
+		}
 		await expect(
 			page.getByRole("heading", {
 				name: routeCase.heading,

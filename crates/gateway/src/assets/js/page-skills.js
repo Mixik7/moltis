@@ -9,6 +9,7 @@ import { onEvent } from "./events.js";
 import { sendRpc } from "./helpers.js";
 import { updateNavCount } from "./nav-counts.js";
 import { registerPage } from "./router.js";
+import { routes } from "./routes.js";
 import * as S from "./state.js";
 import { ConfirmDialog, requestConfirm } from "./ui.js";
 
@@ -839,14 +840,18 @@ function SkillsPage() {
 }
 
 // ── Router integration ───────────────────────────────────────
-registerPage(
-	"/skills",
-	function initSkills(container) {
-		container.style.cssText = "flex-direction:column;padding:0;overflow:hidden;";
-		render(html`<${SkillsPage} />`, container);
-	},
-	function teardownSkills() {
-		var container = S.$("pageContent");
-		if (container) render(null, container);
-	},
-);
+
+var _skillsContainer = null;
+
+export function initSkills(container) {
+	_skillsContainer = container;
+	container.style.cssText = "flex-direction:column;padding:0;overflow:hidden;";
+	render(html`<${SkillsPage} />`, container);
+}
+
+export function teardownSkills() {
+	if (_skillsContainer) render(null, _skillsContainer);
+	_skillsContainer = null;
+}
+
+registerPage(routes.skills, initSkills, teardownSkills);

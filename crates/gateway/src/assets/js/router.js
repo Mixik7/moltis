@@ -1,6 +1,7 @@
 // ── Router ──────────────────────────────────────────────────
 
 import { clearLogsAlert } from "./logs-alert.js";
+import { routes } from "./routes.js";
 import * as S from "./state.js";
 
 var pages = {};
@@ -73,6 +74,12 @@ function updateNavActiveState(path) {
 		var active = href === path || (href !== "/" && path.indexOf(href) === 0);
 		a.classList.toggle("active", active);
 	});
+
+	var settingsBtn = document.getElementById("settingsBtn");
+	if (settingsBtn) {
+		var settingsActive = path === routes.settings || path.indexOf(`${routes.settings}/`) === 0;
+		settingsBtn.classList.toggle("active", settingsActive);
+	}
 }
 
 export function mount(path) {
@@ -90,14 +97,14 @@ export function mount(path) {
 	updateNavActiveState(path);
 
 	// Show sessions panel on chat pages
-	if (route.matchedPrefix === "/chats" || path === "/chats") {
+	if (route.matchedPrefix === routes.chats || path === routes.chats) {
 		sessionsPanel.classList.remove("hidden");
 	} else {
 		sessionsPanel.classList.add("hidden");
 	}
 
 	// Clear unseen logs alert when viewing the logs page
-	if (path === "/logs" || path === "/settings/logs") clearLogsAlert();
+	if (path === "/logs" || path === routes.logs) clearLogsAlert();
 
 	if (page) page.init(pageContent, route.param);
 }
@@ -110,21 +117,25 @@ window.addEventListener("popstate", () => {
 var burgerBtn = S.$("burgerBtn");
 var navPanel = S.$("navPanel");
 
-burgerBtn.addEventListener("click", () => {
-	navPanel.classList.toggle("hidden");
-});
+if (burgerBtn && navPanel) {
+	burgerBtn.addEventListener("click", () => {
+		navPanel.classList.toggle("hidden");
+	});
+}
 
-navPanel.addEventListener("click", (e) => {
-	var link = e.target.closest("[data-nav]");
-	if (!link) return;
-	e.preventDefault();
-	navigate(link.getAttribute("href"));
-});
+if (navPanel) {
+	navPanel.addEventListener("click", (e) => {
+		var link = e.target.closest("[data-nav]");
+		if (!link) return;
+		e.preventDefault();
+		navigate(link.getAttribute("href"));
+	});
+}
 
 var titleLink = document.getElementById("titleLink");
 if (titleLink) {
 	titleLink.addEventListener("click", (e) => {
 		e.preventDefault();
-		navigate("/chats");
+		navigate(routes.chats);
 	});
 }

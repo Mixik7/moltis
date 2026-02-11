@@ -271,6 +271,18 @@ async fn reset_auth_removes_all_authentication() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
+    // Auth-disabled mode should also bypass endpoint throttling.
+    for _ in 0..220 {
+        let resp = reqwest::get(format!("http://{addr}/api/bootstrap"))
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "requests should not be rate-limited when auth is disabled"
+        );
+    }
+
     // /api/auth/status should report authenticated: true, auth_disabled: true.
     let resp = reqwest::get(format!("http://{addr}/api/auth/status"))
         .await
@@ -553,6 +565,20 @@ async fn localhost_set_password_without_current() {
     // Password should now be set.
     assert!(store.has_password().await.unwrap());
     assert!(store.verify_password("newpass123").await.unwrap());
+
+    // After adding a password, localhost bypass should stop applying.
+    let status = reqwest::get(format!("http://{addr}/api/auth/status"))
+        .await
+        .unwrap();
+    assert_eq!(status.status(), 200);
+    let body: serde_json::Value = status.json().await.unwrap();
+    assert_eq!(body["has_password"], true);
+    assert_eq!(body["authenticated"], false);
+
+    let protected = reqwest::get(format!("http://{addr}/api/bootstrap"))
+        .await
+        .unwrap();
+    assert_eq!(protected.status(), 401);
 }
 
 /// Unauthenticated POST to /api/sessions/:key/upload returns 401.
@@ -627,6 +653,31 @@ async fn localhost_with_password_requires_login() {
     assert_eq!(body["setup_required"], false);
     // Not authenticated without a session.
     assert_eq!(body["authenticated"], false);
+}
+
+/// On localhost with a passkey registered, unauthenticated requests require login.
+#[cfg(feature = "web-ui")]
+#[tokio::test]
+async fn localhost_with_passkey_requires_login() {
+    let (addr, store, _state) = start_localhost_server().await;
+    store
+        .store_passkey(b"cred-1", "MacBook Touch ID", b"serialized-passkey")
+        .await
+        .unwrap();
+
+    let status = reqwest::get(format!("http://{addr}/api/auth/status"))
+        .await
+        .unwrap();
+    assert_eq!(status.status(), 200);
+    let body: serde_json::Value = status.json().await.unwrap();
+    assert_eq!(body["has_passkeys"], true);
+    assert_eq!(body["setup_required"], false);
+    assert_eq!(body["authenticated"], false);
+
+    let protected = reqwest::get(format!("http://{addr}/api/bootstrap"))
+        .await
+        .unwrap();
+    assert_eq!(protected.status(), 401);
 }
 
 // ── Three-tier model tests ──────────────────────────────────────────────────
@@ -796,4 +847,236 @@ async fn login_cookie_omits_domain_for_external_host() {
         !cookie_header.contains("Domain="),
         "session cookie should NOT include Domain for external host, got: {cookie_header}"
     );
+}
+
+/// Password login attempts are throttled to reduce brute-force attempts.
+#[cfg(feature = "web-ui")]
+#[tokio::test]
+async fn login_endpoint_rate_limited_after_repeated_failures() {
+    let (addr, store) = start_auth_server().await;
+    store.set_initial_password("testpass123").await.unwrap();
+
+    let client = reqwest::Client::new();
+
+    for _ in 0..5 {
+        let resp = client
+            .post(format!("http://{addr}/api/auth/login"))
+            .header("Content-Type", "application/json")
+            .body(r#"{"password":"wrong-password"}"#)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            401,
+            "login should fail before throttle engages"
+        );
+    }
+
+    let throttled = client
+        .post(format!("http://{addr}/api/auth/login"))
+        .header("Content-Type", "application/json")
+        .body(r#"{"password":"wrong-password"}"#)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(throttled.status(), 429);
+
+    let retry_after = throttled
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    assert!(
+        retry_after >= 1,
+        "expected Retry-After header on throttled login response"
+    );
+}
+
+/// Normal API endpoints are also throttled with a higher ceiling for regular use.
+#[cfg(feature = "web-ui")]
+#[tokio::test]
+async fn api_endpoint_rate_limited_after_high_request_volume() {
+    let (addr, store) = start_auth_server().await;
+    store.set_initial_password("testpass123").await.unwrap();
+
+    let client = reqwest::Client::new();
+
+    for _ in 0..180 {
+        let resp = client
+            .get(format!("http://{addr}/api/bootstrap"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            401,
+            "unauthenticated protected requests should pass through auth middleware before throttle engages"
+        );
+    }
+
+    let throttled = client
+        .get(format!("http://{addr}/api/bootstrap"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(throttled.status(), 429);
+}
+
+// ── Onboarding auth protection tests ─────────────────────────────────────────
+
+/// During setup (no password), a remote connection to /onboarding is allowed
+/// through — the auth gate must not redirect back to /onboarding (which would
+/// cause an infinite 303 loop).
+#[cfg(feature = "web-ui")]
+#[tokio::test]
+async fn onboarding_accessible_during_setup_for_remote() {
+    let (addr, _store, _state) = start_proxied_server().await;
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    let resp = client
+        .get(format!("http://{addr}/onboarding"))
+        .send()
+        .await
+        .unwrap();
+
+    // Must NOT be a redirect (especially not 303 to /onboarding).
+    assert_ne!(
+        resp.status(),
+        303,
+        "/onboarding must not redirect to itself during setup"
+    );
+    assert!(
+        !resp.status().is_redirection(),
+        "/onboarding should serve the page during setup, not redirect"
+    );
+}
+
+/// After setup is complete, /onboarding requires authentication — an
+/// unauthenticated remote request must be redirected to /login.
+#[cfg(feature = "web-ui")]
+#[tokio::test]
+async fn onboarding_requires_auth_after_setup() {
+    let (addr, store, _state) = start_proxied_server().await;
+    store.set_initial_password("testpass123").await.unwrap();
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    let resp = client
+        .get(format!("http://{addr}/onboarding"))
+        .send()
+        .await
+        .unwrap();
+
+    // After setup, unauthenticated request to /onboarding must redirect to /login.
+    assert!(
+        resp.status().is_redirection(),
+        "/onboarding should redirect when setup is complete and request is unauthenticated"
+    );
+    let location = resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_eq!(
+        location, "/login",
+        "/onboarding should redirect to /login after setup, not {location}"
+    );
+}
+
+/// After setup, an authenticated request to /onboarding is allowed through
+/// (the onboarding handler itself decides whether to show the page or redirect
+/// to /).
+#[cfg(feature = "web-ui")]
+#[tokio::test]
+async fn onboarding_accessible_with_session_after_setup() {
+    let (addr, store, _state) = start_proxied_server().await;
+    store.set_initial_password("testpass123").await.unwrap();
+    let token = store.create_session().await.unwrap();
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    let resp = client
+        .get(format!("http://{addr}/onboarding"))
+        .header("Cookie", format!("moltis_session={token}"))
+        .send()
+        .await
+        .unwrap();
+
+    // Authenticated request must not get 401 or redirect to /login.
+    assert_ne!(resp.status(), 401);
+    let location = resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert_ne!(
+        location, "/login",
+        "authenticated request to /onboarding should not redirect to /login"
+    );
+}
+
+/// POST /api/auth/setup is rejected with 403 after setup is already complete.
+/// This prevents an attacker from resetting the password via the setup endpoint.
+#[cfg(feature = "web-ui")]
+#[tokio::test]
+async fn setup_endpoint_rejected_after_setup_complete() {
+    let (addr, store, _state) = start_proxied_server().await;
+    store.set_initial_password("testpass123").await.unwrap();
+    let token = store.create_session().await.unwrap();
+
+    let client = reqwest::Client::new();
+
+    // Even with a valid session, /api/auth/setup must reject once setup is done.
+    let resp = client
+        .post(format!("http://{addr}/api/auth/setup"))
+        .header("Cookie", format!("moltis_session={token}"))
+        .header("Content-Type", "application/json")
+        .body(r#"{"password":"evil-new-password"}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "/api/auth/setup must return 403 after setup is complete"
+    );
+}
+
+/// Authenticated requests bypass IP throttling.
+#[cfg(feature = "web-ui")]
+#[tokio::test]
+async fn authenticated_api_endpoint_not_rate_limited() {
+    let (addr, store) = start_auth_server().await;
+    store.set_initial_password("testpass123").await.unwrap();
+    let token = store.create_session().await.unwrap();
+
+    let client = reqwest::Client::new();
+
+    for _ in 0..220 {
+        let resp = client
+            .get(format!("http://{addr}/api/bootstrap"))
+            .header("Cookie", format!("moltis_session={token}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            200,
+            "authenticated requests should bypass throttling"
+        );
+    }
 }

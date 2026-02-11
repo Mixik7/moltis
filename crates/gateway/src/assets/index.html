@@ -15,71 +15,89 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="moltis">
-<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
-<script>!function(){var t=localStorage.getItem("moltis-theme")||"system";if(t==="system")t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);document.documentElement.style.background=t==="dark"?"#0f1115":"#fafafa";document.documentElement.style.color=t==="dark"?"#e0e0e0":"#222"}()</script>
-<title>moltis</title>
-<link rel="icon" type="image/png" sizes="96x96" href="/assets/icons/icon-96.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/icon-72.png">
-<meta name="build-ts" content="__BUILD_TS__">
-<script type="importmap">
+<link rel="apple-touch-icon" href="{{ asset_prefix }}icons/apple-touch-icon.png">
+<script nonce="{{ nonce }}">!function(){var t=localStorage.getItem("moltis-theme")||"system";if(t==="system")t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);document.documentElement.style.background=t==="dark"?"#0f1115":"#fafafa";document.documentElement.style.color=t==="dark"?"#e0e0e0":"#222"}()</script>
+<title>{{ share_site_name }}</title>
+<meta name="description" content="{{ share_description }}">
+<meta property="og:title" content="{{ share_title }}">
+<meta property="og:description" content="{{ share_description }}">
+<meta property="og:site_name" content="{{ share_site_name }}">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="{{ share_image_url }}">
+<meta property="og:image:secure_url" content="{{ share_image_url }}">
+<meta property="og:image:width" content="2400">
+<meta property="og:image:height" content="1260">
+<meta property="og:image:alt" content="{{ share_image_alt }}">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{ share_image_url }}">
+<meta name="twitter:image:alt" content="{{ share_image_alt }}">
+<meta name="twitter:title" content="{{ share_title }}">
+<meta name="twitter:description" content="{{ share_description }}">
+<link rel="icon" type="image/png" sizes="96x96" href="{{ asset_prefix }}icons/icon-96.png">
+<link rel="icon" type="image/png" sizes="32x32" href="{{ asset_prefix }}icons/icon-72.png">
+<meta name="build-ts" content="{{ build_ts }}">
+<script nonce="{{ nonce }}">window.__MOLTIS__={{ gon_json|safe }};</script>
+<script nonce="{{ nonce }}">!function(){var g=window.__MOLTIS__;var i=g&&g.identity;var e=i&&typeof i.emoji==="string"?i.emoji.trim():"";if(!e)return;var safe=e.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");var svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><text x="50%" y="50%" text-anchor="middle" dominant-baseline="central" font-size="52">'+safe+"</text></svg>";var href="data:image/svg+xml,"+encodeURIComponent(svg);var links=Array.from(document.querySelectorAll('link[rel="icon"]'));if(links.length===0){var fallback=document.createElement("link");fallback.rel="icon";document.head.appendChild(fallback);links.push(fallback)}for(var n=0;n<links.length;n++){var link=links[n];link.type="image/svg+xml";link.removeAttribute("sizes");link.href=href}}()</script>
+<script nonce="{{ nonce }}" type="importmap">
 {
   "imports": {
-    "preact": "/assets/js/vendor/preact.mjs",
-    "preact/hooks": "/assets/js/vendor/preact-hooks.mjs",
-    "@preact/signals": "/assets/js/vendor/preact-signals.mjs",
-    "htm/preact": "/assets/js/vendor/htm-preact.mjs",
-    "luxon": "/assets/js/vendor/luxon.mjs",
-    "uplot": "/assets/js/vendor/uplot.mjs",
-    "pretty-bytes": "/assets/js/vendor/pretty-bytes.mjs"
+    "preact": "{{ asset_prefix }}js/vendor/preact.mjs",
+    "preact/hooks": "{{ asset_prefix }}js/vendor/preact-hooks.mjs",
+    "@preact/signals": "{{ asset_prefix }}js/vendor/preact-signals.mjs",
+    "htm/preact": "{{ asset_prefix }}js/vendor/htm-preact.mjs",
+    "luxon": "{{ asset_prefix }}js/vendor/luxon.mjs",
+    "uplot": "{{ asset_prefix }}js/vendor/uplot.mjs",
+    "pretty-bytes": "{{ asset_prefix }}js/vendor/pretty-bytes.mjs"
   }
 }
 </script>
-<link rel="stylesheet" href="/assets/css/base.css">
-<link rel="stylesheet" href="/assets/css/layout.css">
-<link rel="stylesheet" href="/assets/css/chat.css">
-<link rel="stylesheet" href="/assets/css/components.css">
-<link rel="stylesheet" href="/assets/css/mobile.css">
-<link rel="stylesheet" href="/assets/css/uplot.css">
-<link rel="stylesheet" href="/assets/style.css">
-<link rel="modulepreload" href="/assets/js/app.js">
-<link rel="modulepreload" href="/assets/js/pwa.js">
-<link rel="modulepreload" href="/assets/js/pwa-install.js">
-<link rel="modulepreload" href="/assets/js/mobile.js">
-<link rel="modulepreload" href="/assets/js/state.js">
-<link rel="modulepreload" href="/assets/js/theme.js">
-<link rel="modulepreload" href="/assets/js/helpers.js">
-<link rel="modulepreload" href="/assets/js/events.js">
-<link rel="modulepreload" href="/assets/js/router.js">
-<link rel="modulepreload" href="/assets/js/websocket.js">
-<link rel="modulepreload" href="/assets/js/sessions.js">
-<link rel="modulepreload" href="/assets/js/session-search.js">
-<link rel="modulepreload" href="/assets/js/models.js">
-<link rel="modulepreload" href="/assets/js/projects.js">
-<link rel="modulepreload" href="/assets/js/project-combo.js">
-<link rel="modulepreload" href="/assets/js/providers.js">
-<link rel="modulepreload" href="/assets/js/chat-ui.js">
-<link rel="modulepreload" href="/assets/js/icons.js">
-<link rel="modulepreload" href="/assets/js/sandbox.js">
-<link rel="modulepreload" href="/assets/js/nav-counts.js">
-<link rel="modulepreload" href="/assets/js/logs-alert.js">
-<link rel="modulepreload" href="/assets/js/page-chat.js">
-<link rel="modulepreload" href="/assets/js/page-crons.js">
-<link rel="modulepreload" href="/assets/js/page-projects.js">
-<link rel="modulepreload" href="/assets/js/page-providers.js">
-<link rel="modulepreload" href="/assets/js/page-channels.js">
-<link rel="modulepreload" href="/assets/js/page-logs.js">
-<link rel="modulepreload" href="/assets/js/page-skills.js">
-<link rel="modulepreload" href="/assets/js/page-mcp.js">
-<link rel="modulepreload" href="/assets/js/page-hooks.js">
-<link rel="modulepreload" href="/assets/js/page-settings.js">
-<link rel="modulepreload" href="/assets/js/page-images.js">
-<link rel="modulepreload" href="/assets/js/emoji-picker.js">
-<link rel="modulepreload" href="/assets/js/vendor/preact.mjs">
-<link rel="modulepreload" href="/assets/js/vendor/preact-hooks.mjs">
-<link rel="modulepreload" href="/assets/js/vendor/preact-signals.mjs">
-<link rel="modulepreload" href="/assets/js/vendor/htm-preact.mjs">
-<link rel="modulepreload" href="/assets/js/vendor/luxon.mjs">
-<link rel="modulepreload" href="/assets/js/time-format.js">
+<link rel="stylesheet" href="{{ asset_prefix }}css/base.css">
+<link rel="stylesheet" href="{{ asset_prefix }}css/layout.css">
+<link rel="stylesheet" href="{{ asset_prefix }}css/chat.css">
+<link rel="stylesheet" href="{{ asset_prefix }}css/components.css">
+<link rel="stylesheet" href="{{ asset_prefix }}css/mobile.css">
+<link rel="stylesheet" href="{{ asset_prefix }}css/uplot.css">
+<link rel="stylesheet" href="{{ asset_prefix }}style.css">
+<link rel="modulepreload" href="{{ asset_prefix }}js/app.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/pwa.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/pwa-install.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/mobile.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/state.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/theme.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/helpers.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/events.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/router.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/websocket.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/sessions.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/session-search.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/models.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/projects.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/project-combo.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/providers.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/chat-ui.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/icons.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/sandbox.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/nav-counts.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/logs-alert.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-chat.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-crons.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-projects.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-providers.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-channels.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-logs.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-skills.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-mcp.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-hooks.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-settings.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/page-images.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/emoji-picker.js">
+<link rel="modulepreload" href="{{ asset_prefix }}js/vendor/preact.mjs">
+<link rel="modulepreload" href="{{ asset_prefix }}js/vendor/preact-hooks.mjs">
+<link rel="modulepreload" href="{{ asset_prefix }}js/vendor/preact-signals.mjs">
+<link rel="modulepreload" href="{{ asset_prefix }}js/vendor/htm-preact.mjs">
+<link rel="modulepreload" href="{{ asset_prefix }}js/vendor/luxon.mjs">
+<link rel="modulepreload" href="{{ asset_prefix }}js/time-format.js">
 </head>
 <body>
 
@@ -91,16 +109,30 @@
 
 <!-- Top bar -->
 <header class="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--border)] bg-[var(--surface)] shrink-0">
-  <button id="burgerBtn" class="burger-btn" title="Navigation">
-    <span class="icon icon-lg icon-burger"></span>
-  </button>
-  <a href="/chats" id="titleLink" class="text-base font-medium tracking-wide text-[var(--text-strong)] no-underline cursor-pointer"><span id="titleEmoji"></span><span id="titleName">moltis</span></a>
-  <script>!function(){var g=window.__MOLTIS__;if(!g||!g.identity)return;var i=g.identity;var e=document.getElementById("titleEmoji");var n=document.getElementById("titleName");if(e&&i.emoji)e.textContent=i.emoji+" ";if(n&&i.name)n.textContent=i.name}()</script>
+  <a href="{{ routes.chats }}" id="titleLink" class="text-base font-medium tracking-wide text-[var(--text-strong)] no-underline cursor-pointer"><span id="titleEmoji"></span><span id="titleName">moltis</span></a>
+  <script nonce="{{ nonce }}">!function(){var g=window.__MOLTIS__;if(!g||!g.identity)return;var i=g.identity;var e=document.getElementById("titleEmoji");var n=document.getElementById("titleName");if(e&&i.emoji)e.textContent=i.emoji+" ";if(n&&i.name)n.textContent=i.name;var a=(i&&i.name&&String(i.name).trim())||"moltis";document.title=a}()</script>
   <span class="status-dot" id="statusDot"></span>
   <span class="text-xs text-[var(--muted)]" id="statusText">disconnected</span>
   <div class="flex-1"></div>
 
   <span id="memoryInfo" class="text-xs text-[var(--muted)]" title="Process memory · System free memory"></span>
+
+  <div class="header-actions">
+    <button id="settingsBtn" class="header-link-btn" title="Settings">
+      <span class="icon icon-settings"></span>
+      <span class="header-link-label">Settings</span>
+    </button>
+    <a
+      href="https://github.com/moltis-org/moltis/issues/new"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="header-link-btn"
+      title="Report an issue"
+    >
+      <span class="icon icon-link"></span>
+      <span class="header-link-label">Report issue</span>
+    </a>
+  </div>
 
   <!-- Theme toggle -->
   <div class="theme-toggle" id="themeToggle">
@@ -125,7 +157,7 @@
 <!-- Auth disabled warning banner (shown by JS when auth is removed) -->
 <div id="authDisabledBanner" class="auth-disabled-banner" style="display:none">
   <span>Authentication is disabled. Anyone with network access can control moltis and your computer.</span>
-  <a href="/settings/security" class="auth-disabled-setup">Set up authentication</a>
+  <a href="{{ routes.security }}" class="auth-disabled-setup">Set up authentication</a>
 </div>
 
 <!-- Update available banner (shown when a newer GitHub release exists) -->
@@ -141,7 +173,7 @@
 <!-- PWA Install Banner (shown on mobile when not installed) -->
 <div id="installBanner" class="hidden fixed bottom-0 left-0 right-0 z-50 bg-[var(--surface)] border-t border-[var(--border)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-lg flex-col gap-3 md:hidden">
   <div class="flex items-start gap-3">
-    <img src="/assets/icons/icon-72.png" alt="moltis" class="w-12 h-12 rounded-lg shrink-0">
+    <img src="{{ asset_prefix }}icons/icon-72.png" alt="moltis" class="w-12 h-12 rounded-lg shrink-0">
     <div data-instructions class="flex-1 min-w-0"></div>
   </div>
   <div class="flex gap-2 justify-end">
@@ -151,58 +183,12 @@
 </div>
 
 <!-- Overlays for mobile panels -->
-<div id="navOverlay" class="nav-overlay"></div>
 <div id="sessionsOverlay" class="sessions-overlay"></div>
 
 <!-- Main layout -->
 <div class="flex flex-1 min-h-0 overflow-hidden">
-  <!-- Navigation panel -->
-  <nav id="navPanel" class="nav-panel">
-    <div class="flex-1 flex flex-col">
-      <a href="/chats" data-nav class="nav-link">
-        <span class="icon icon-chat"></span>
-        Chats
-      </a>
-      <a href="/crons" data-nav class="nav-link">
-        <span class="icon icon-cron"></span>
-        Crons
-        <span class="nav-count ml-auto text-[0.85rem] leading-none px-1.5 py-0.5 rounded-full bg-[var(--surface2)] text-[var(--muted)]" id="navCountCrons"></span>
-      </a>
-      <a href="/monitoring" data-nav class="nav-link">
-        <span class="icon icon-chart-bar"></span>
-        Monitoring
-      </a>
-      <a href="/skills" data-nav class="nav-link">
-        <span class="icon icon-sparkles"></span>
-        Skills
-        <span class="nav-count ml-auto text-[0.85rem] leading-none px-1.5 py-0.5 rounded-full bg-[var(--surface2)] text-[var(--muted)]" id="navCountSkills"></span>
-      </a>
-      <a href="/projects" data-nav class="nav-link">
-        <span class="icon icon-folder"></span>
-        Repositories
-        <span class="nav-count ml-auto text-[0.85rem] leading-none px-1.5 py-0.5 rounded-full bg-[var(--surface2)] text-[var(--muted)]" id="navCountProjects"></span>
-      </a>
-    </div>
-    <div class="border-t border-[var(--border)] border-b">
-      <a href="/settings" data-nav class="nav-link">
-        <span class="icon icon-settings"></span>
-        Settings
-      </a>
-    </div>
-    <div class="py-2 text-center">
-      <a href="https://github.com/moltis-org/moltis/issues/new" target="_blank" rel="noopener noreferrer" class="text-[0.7rem] text-[var(--muted)] no-underline hover:underline">Report an issue</a>
-    </div>
-  </nav>
-
   <!-- Sessions sidebar -->
   <div class="w-[240px] border-r border-[var(--border)] flex flex-col bg-[var(--surface)] shrink-0 hidden" id="sessionsPanel">
-    <div class="px-3 py-2.5 border-b border-[var(--border)] flex items-center justify-between">
-      <span class="text-sm text-[var(--muted)] font-medium">Sessions</span>
-      <div class="flex items-center gap-1">
-        <button id="clearAllSessionsBtn" class="text-xs text-[var(--muted)] border border-[var(--border)] px-2 py-0.5 rounded hover:text-[var(--error,#e55)] hover:border-[var(--error,#e55)] transition-colors cursor-pointer bg-transparent hidden" title="Clear all sessions">Clear</button>
-        <button id="newSessionBtn" class="text-xs text-[var(--muted)] border border-[var(--border)] px-2 py-0.5 rounded hover:text-[var(--text)] hover:border-[var(--border-strong)] transition-colors cursor-pointer bg-transparent" title="New session">+</button>
-      </div>
-    </div>
     <!-- Project selector -->
     <div id="projectSelectWrapper" class="px-3 py-2 border-b border-[var(--border)] hidden">
       <div id="projectFilterCombo" class="model-combo">
@@ -217,8 +203,12 @@
       </div>
     </div>
     <div class="px-3 py-2 border-b border-[var(--border)] relative">
-      <input id="sessionSearch" type="text" placeholder="Search sessions…"
-             class="w-full text-xs bg-[var(--surface2)] border border-[var(--border)] rounded px-2 py-1.5 text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)] font-sans" />
+      <div class="flex items-center gap-1">
+        <input id="sessionSearch" type="text" placeholder="Search sessions…"
+               class="flex-1 min-w-0 text-xs bg-[var(--surface2)] border border-[var(--border)] rounded px-2 py-1.5 text-[var(--text)] focus:outline-none focus:border-[var(--border-strong)] font-sans" />
+        <button id="newSessionBtn" class="text-xs text-[var(--muted)] border border-[var(--border)] px-2 py-1.5 rounded hover:text-[var(--text)] hover:border-[var(--border-strong)] transition-colors cursor-pointer bg-transparent" title="New session">+</button>
+        <button id="clearAllSessionsBtn" class="text-xs text-[var(--muted)] border border-[var(--border)] px-2 py-0.5 rounded hover:text-[var(--error,#e55)] hover:border-[var(--error,#e55)] transition-colors cursor-pointer bg-transparent hidden" title="Clear all sessions">Clear</button>
+      </div>
       <div id="searchResults" class="hidden"></div>
     </div>
     <div class="flex-1 overflow-y-auto" id="sessionList"></div>
@@ -316,7 +306,7 @@
   Enabling Funnel exposes moltis to the public internet. This code has not been security-audited. Use at your own risk.
 </div>
 <div id="ts-funnel-auth-btn" style="display:none">
-  <a href="/settings/security" class="provider-btn">Set up authentication</a>
+  <a href="{{ routes.security }}" class="provider-btn">Set up authentication</a>
 </div>
 
 <!-- Voice provider setup instructions (toggled by page-settings.js) -->
@@ -481,7 +471,7 @@ endpoint = "http://localhost:8000"</code>
         <span class="ctx-value" data-model-name></span>
       </div>
       <div class="ctx-row">
-        <span class="ctx-label">Provider</span>
+        <span class="ctx-label">LLM</span>
         <span class="ctx-value" data-provider></span>
       </div>
       <div class="ctx-disabled" style="margin-top:8px">
@@ -505,7 +495,7 @@ endpoint = "http://localhost:8000"</code>
         <span class="text-[var(--accent)] mt-0.5 flex-shrink-0">
           <span class="icon icon-chat-bubble"></span>
         </span>
-        <span>Chat with multiple AI providers and models</span>
+        <span>Chat with multiple LLM providers and models</span>
       </li>
       <li class="flex items-start gap-3">
         <span class="text-[var(--accent)] mt-0.5 flex-shrink-0">
@@ -540,17 +530,14 @@ endpoint = "http://localhost:8000"</code>
 
 <template id="tpl-no-providers-card">
   <div id="noProvidersCard" class="my-auto self-center flex flex-col items-center text-center px-6 py-10 max-w-md">
-    <div class="text-[var(--muted)] mb-4">
-      <span class="icon icon-no-providers" style="width:48px;height:48px"></span>
-    </div>
-    <h2 class="text-lg font-medium text-[var(--text)] mb-1">No LLM Providers Connected</h2>
+    <h2 class="text-lg font-medium text-[var(--text)] mb-1">No LLMs Connected</h2>
     <p class="text-sm text-[var(--muted)] mb-6">
-      You have not connected any LLM providers yet. Add a provider to start chatting.
+      You have not connected any LLM providers yet. Add one to start chatting.
     </p>
-    <a href="/providers" class="provider-btn">Go to Providers</a>
+    <a href="{{ routes.providers }}" class="provider-btn">Go to LLMs</a>
   </div>
 </template>
 
-<script type="module" src="/assets/js/app.js"></script>
+<script nonce="{{ nonce }}" type="module" src="{{ asset_prefix }}js/app.js"></script>
 </body>
 </html>

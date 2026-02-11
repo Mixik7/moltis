@@ -452,7 +452,7 @@ fn load_access_token_and_account_id() -> anyhow::Result<(String, String)> {
         .load("openai-codex")
         .or_else(load_codex_cli_tokens)
         .ok_or_else(|| {
-            warn!("openai-codex tokens not found in token store or codex CLI auth");
+            debug!("openai-codex tokens not found in token store or codex CLI auth");
             anyhow::anyhow!("openai-codex tokens not found")
         })?;
 
@@ -940,11 +940,14 @@ mod tests {
     #[test]
     fn convert_messages_tool_call_and_result() {
         let messages = vec![
-            ChatMessage::assistant_with_tools(None, vec![ToolCall {
-                id: "call_1".to_string(),
-                name: "get_time".to_string(),
-                arguments: serde_json::json!({}),
-            }]),
+            ChatMessage::assistant_with_tools(
+                None,
+                vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "get_time".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+            ),
             ChatMessage::tool("call_1", "12:00"),
         ];
         let converted = OpenAiCodexProvider::convert_messages(&messages);
@@ -1069,11 +1072,14 @@ mod tests {
         .to_string();
         let messages = vec![
             ChatMessage::user("Take a screenshot"),
-            ChatMessage::assistant_with_tools(None, vec![ToolCall {
-                id: "call_screenshot".to_string(),
-                name: "browser_screenshot".to_string(),
-                arguments: serde_json::json!({}),
-            }]),
+            ChatMessage::assistant_with_tools(
+                None,
+                vec![ToolCall {
+                    id: "call_screenshot".to_string(),
+                    name: "browser_screenshot".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+            ),
             ChatMessage::tool("call_screenshot", &tool_output),
             ChatMessage::assistant("Here is the screenshot."),
         ];

@@ -39,15 +39,17 @@ expect_used = "deny"
 unwrap_used = "deny"
 
 [workspace.package]
-edition    = "2024"
-license    = "MIT"
-repository = "https://github.com/moltis-org/moltis"
-version    = "0.5.0"
+edition      = "2024"
+license      = "MIT"
+repository   = "https://github.com/moltis-org/moltis"
+rust-version = "1.91"
+version      = "0.8.8"
 
 [workspace.dependencies]
 # Async runtime
 tokio = { features = ["full"], version = "1" }
 # HTTP/WS server
+askama     = "0.15"
 axum       = { features = ["ws"], version = "0.8" }
 axum-extra = "0.10"
 # Serialization
@@ -179,3 +181,7 @@ moltis-skills     = { path = "crates/skills" }
 moltis-telegram   = { path = "crates/telegram" }
 moltis-tools      = { path = "crates/tools" }
 moltis-voice      = { path = "crates/voice" }
+
+[profile.release]
+lto   = "thin"
+strip = true

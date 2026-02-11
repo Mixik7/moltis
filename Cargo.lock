@@ -151,6 +151,58 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "askama"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08e1676b346cadfec169374f949d7490fd80a24193d37d2afce0c047cf695e57"
+dependencies = [
+ "askama_macros",
+ "itoa",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "askama_derive"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7661ff56517787343f376f75db037426facd7c8d3049cef8911f1e75016f3a37"
+dependencies = [
+ "askama_parser",
+ "basic-toml",
+ "memchr",
+ "proc-macro2",
+ "quote",
+ "rustc-hash",
+ "serde",
+ "serde_derive",
+ "syn 2.0.114",
+]
+
+[[package]]
+name = "askama_macros"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "713ee4dbfd1eb719c2dab859465b01fa1d21cb566684614a713a6b7a99a4e47b"
+dependencies = [
+ "askama_derive",
+]
+
+[[package]]
+name = "askama_parser"
+version = "0.15.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d62d674238a526418b30c0def480d5beadb9d8964e7f38d635b03bf639c704c"
+dependencies = [
+ "rustc-hash",
+ "serde",
+ "serde_derive",
+ "unicode-ident",
+ "winnow",
+]
+
+[[package]]
 name = "asn1-rs"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -522,8 +574,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "basic-toml"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba62675e8242a4c4e806d12f11d136e626e6c8361d6b829310732241652a178a"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "benchmarks"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "codspeed-divan-compat",
  "moltis-agents",
@@ -4398,7 +4459,7 @@ dependencies = [
 
 [[package]]
 name = "moltis"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -4431,7 +4492,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-agents"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-openai",
@@ -4466,7 +4527,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-auto-reply"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "moltis-agents",
@@ -4482,7 +4543,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-browser"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4530,7 +4591,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-canvas"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "axum",
@@ -4542,7 +4603,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-channels"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4557,7 +4618,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-common"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4573,7 +4634,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-config"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "chrono-tz",
@@ -4590,7 +4651,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-cron"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4612,10 +4673,11 @@ dependencies = [
 
 [[package]]
 name = "moltis-gateway"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "argon2",
+ "askama",
  "async-trait",
  "axum",
  "axum-extra",
@@ -4689,7 +4751,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-mcp"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4707,7 +4769,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-media"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "image",
@@ -4721,7 +4783,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-memory"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4746,7 +4808,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-metrics"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4764,7 +4826,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-oauth"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "axum",
@@ -4786,7 +4848,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-onboarding"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "moltis-common",
@@ -4802,7 +4864,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-plugins"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4821,7 +4883,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-projects"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4838,7 +4900,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-protocol"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "moltis-metrics",
  "serde",
@@ -4848,7 +4910,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-qmd"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4862,7 +4924,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-routing"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "moltis-common",
@@ -4875,7 +4937,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-sessions"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "fd-lock",
@@ -4892,7 +4954,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-skills"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4912,7 +4974,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-telegram"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4936,7 +4998,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-tools"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4967,7 +5029,7 @@ dependencies = [
 
 [[package]]
 name = "moltis-voice"
-version = "0.5.0"
+version = "0.8.8"
 dependencies = [
  "anyhow",
  "async-trait",

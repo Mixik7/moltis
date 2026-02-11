@@ -5,7 +5,200 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.8] - 2026-02-11
+
+### Changed
+
+- **Sessions sidebar layout**: Removed the top `Sessions` title row and moved
+  the new-session `+` action next to the session search field for a more
+  compact list header.
+- **Identity autosave UX**: Name fields in Settings > Identity now autosave on
+  input blur, matching the quick-save behavior used for emoji selection.
+- **Favicon behavior by browser**: Identity emoji changes now update favicon
+  live; Safari-specific reload guidance is shown only when Safari is detected.
+- **Page title format**: Browser title now uses the configured assistant name
+  only, without appending `AI assistant` suffix text.
+
+## [0.8.7] - 2026-02-11
+
+### Added
+
+- **Model allowlist probe output support**: Model allowlist matching now handles
+  provider probe output more robustly and applies stricter matching semantics.
+- **Ship helper command**: Added a `just ship` task and `scripts/ship-pr.sh`
+  helper to streamline commit, push, PR update, and local validation workflows.
+
+### Changed
+
+- **Gateway titles and labels**: Login/onboarding page titles now consistently
+  use configured values and identity emoji; UI copy now labels providers as
+  `LLM` where appropriate.
+- **Release binary profile**: Enabled ThinLTO and binary stripping in the
+  release profile to reduce artifact size.
+- **SPA route handling**: Centralized SPA route definitions and preserved TOML
+  comments during config updates.
+
+### Fixed
+
+- **Auth setup hardening**: Enforced authentication immediately after password
+  or passkey setup to prevent unintended post-setup unauthenticated access.
+- **Streaming event ordering**: Preserved gateway chat stream event ordering to
+  avoid out-of-order UI updates during streaming responses.
+- **Sandbox fallback pathing**: Exec fallback now uses the host data directory
+  when no container runtime is available.
+
+## [0.8.6] - 2026-02-11
+
+### Changed
+
+- **Release workflow gates E2E tests**: Build Packages workflow now runs E2E
+  tests and blocks all package builds (deb, rpm, arch, AppImage, snap,
+  Homebrew, Docker) if they fail.
+
+### Fixed
+
+- **Docker TLS setup**: All Docker examples now expose port 13132 for CA
+  certificate download with instructions to trust the self-signed cert,
+  fixing HTTPS access in Safari and other strict browsers.
+- **E2E onboarding-auth test**: The `auth` Playwright project's `testMatch`
+  regex `/auth\.spec/` also matched `onboarding-auth.spec.js`, causing it to
+  run against the default gateway (wrong server) instead of the onboarding-auth
+  gateway. Tightened regex to `/\/auth\.spec/`.
+
+## [0.8.5] - 2026-02-11
+
+### Added
+
+- **CLI `--version` flag**: `moltis --version` now prints the version.
+- **Askama HTML rendering**: SPA index and social metadata templates use
+  Askama instead of string replacement.
+
+### Fixed
+
+- **WebSocket reconnect after remote onboarding auth**: Connection now
+  reconnects immediately after auth setup instead of waiting for the backoff
+  timer, fixing "WebSocket not connected" errors during identity save.
+- **Passkeys on Fly.io**: Auto-detect WebAuthn RP ID from `FLY_APP_NAME`
+  environment variable (constructs `{app}.fly.dev`).
+- **PaaS proxy detection**: Added explicit `MOLTIS_BEHIND_PROXY=true` to
+  `render.yaml` and `fly.toml` so auth middleware reliably detects remote
+  connections behind the platform's reverse proxy.
+- **WebAuthn origin scheme on PaaS**: Non-localhost RP IDs now default to
+  `https://` origin since PaaS platforms terminate TLS at the proxy.
+
+### Security
+
+- **Compaction prompt injection hardening**: Session compaction now passes
+  typed `ChatMessage` objects to the summarizer LLM instead of concatenated
+  `{role}: {content}` text, preventing role-spoofing prompt injection where
+  user content could mimic role prefixes (similar to GHSA-g8p2-7wf7-98mq).
+
+## [0.8.4] - 2026-02-11
+
+### Changed
+
+- **Session delete UX**: Forked sessions with no new messages beyond the fork
+  point are deleted immediately without a confirmation dialog.
+
+### Fixed
+
+- **Localhost passkey compatibility**: Gateway startup URLs and TLS redirect
+  hints now use `localhost` for loopback hosts, while WebAuthn also allows
+  `moltis.localhost` as an additional origin when RP ID is `localhost`.
+
+## [0.8.3] - 2026-02-11
+
+### Fixed
+
+- **Linux clippy `unused_mut` failure**: Fixed a target-specific `unused_mut`
+  warning in browser stale-container cleanup that failed release clippy on
+  Linux with `-D warnings`.
+
+## [0.8.2] - 2026-02-11
+
+### Fixed
+
+- **Release clippy environment parity**: The release workflow clippy job now
+  runs in the same CUDA-capable environment as main CI, includes the llama
+  source git bootstrap step, and installs `rustfmt` alongside `clippy`. This
+  fixes release clippy failures caused by missing CUDA toolchain/runtime.
+
+## [0.8.1] - 2026-02-11
+
+### Fixed
+
+- **Clippy validation parity**: Unified local validation, CI (main), and
+  release workflows to use the same clippy command and flags
+  (`--workspace --all-features --all-targets --timings -D warnings`), which
+  prevents release-only clippy failures from command drift.
+
+## [0.8.0] - 2026-02-11
+
+### Added
+
+- **Instance-scoped container naming**: Browser and sandbox container/image
+  prefixes now derive from the configured instance name, so multiple Moltis
+  instances do not collide.
+
+### Changed
+
+- **Stale container cleanup targeting**: Startup cleanup now removes only
+  containers that belong to the active instance prefix instead of sweeping
+  unrelated containers.
+- **Apple container runtime probing**: Browser container backend checks now use
+  the modern Apple container CLI flow (`container image pull --help`) without
+  legacy fallback behavior.
+
+### Fixed
+
+- **Release workflow artifacts**: Disabled docker build record artifact uploads
+  in release CI to avoid release workflow failures from missing artifact paths.
+- **Release preflight consistency**: Pinned nightly toolchain and aligned
+  release preflight checks with CI formatting/lint gates.
+
+## [0.7.1] - 2026-02-11
+
+### Fixed
+
+- **Release format gate**: Included missing Rust formatting updates in release
+  history so the release workflow `cargo fmt --all -- --check` passes for
+  tagged builds.
+
+## [0.7.0] - 2026-02-11
+
+### Added
+
+- **HTTP endpoint throttling**: Added gateway-level per-IP rate limits for
+  login (`/api/auth/login`), auth API routes, general API routes, and WebSocket
+  upgrades, with `429` responses, `Retry-After` headers, and JSON
+  `retry_after_seconds`.
+- **Login retry UX**: The login page now disables the password Sign In button
+  while throttled and shows a live `Retry in Xs` countdown.
+
+### Changed
+
+- **Auth-aware throttling policy**: IP throttling is now bypassed when auth is
+  not required for the current request (authenticated requests, auth-disabled
+  mode, and local Tier-2 setup mode). This keeps brute-force protection for
+  unauthenticated/auth-required traffic while avoiding localhost friction.
+- **Login error copy**: During throttled login retries, the error message stays
+  static while the retry countdown is shown only on the button.
+
+### Documentation
+
+- Added throttling/security notes to `README.md`, `docs/src/index.md`,
+  `docs/src/authentication.md`, and `docs/src/security.md`.
+
+## [0.6.1] - 2026-02-10
+
+### Fixed
+
+- **Release clippy**: Aligned release workflow clippy command with nightly
+  flags (`-Z unstable-options`, `--timings`).
+- **Test lint attributes**: Fixed useless outer `#[allow]` on test module
+  `use` statement; replaced `.unwrap()` with `.expect()` in auth route tests.
+
+## [0.6.0] - 2026-02-10
 
 ### Added
 
@@ -22,9 +215,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hook events with correct PascalCase names and one-line descriptions.
 - **Hook event validation**: `moltis config check` now warns on unknown hook
   event names in the config file.
+- **Authentication docs**: Comprehensive `docs/src/authentication.md` with
+  decision matrix, credential types, API key scopes, session endpoints,
+  and WebSocket auth documentation.
+
+### Fixed
+
+- **Browser container lifecycle**: Browser containers (browserless/chrome)
+  now have proper lifecycle management — periodic cleanup removes idle
+  instances every 30 seconds, graceful shutdown stops all containers on
+  Ctrl+C, and `sessions.clear_all` immediately closes all browser sessions.
+  A `Drop` safety net ensures containers are stopped even on unexpected exits.
 
 ### Changed
 
+- **Unified auth gate**: All auth decision logic is now in a single
+  `check_auth()` function called by one `auth_gate` middleware. This fixes
+  the split-brain bug where passkey-only setups (no password) were treated
+  differently by 4 out of 5 auth code paths — the middleware used
+  `is_setup_complete()` (correct) while the others used `has_password()`
+  (incorrect for passkey-only setups).
 - **Hooks documentation**: Rewritten `docs/src/hooks.md` with complete event
   reference, corrected `ToolResultPersist` classification (modifying, not
   read-only), and new "Prompt Injection Filtering" section with examples.
@@ -42,6 +252,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   header (`script-src 'self' 'nonce-<UUID>'`), preventing inline script
   injection (XSS defense-in-depth). The OAuth callback page also gets a
   restrictive CSP.
+- **Passkey-only auth fix**: Fixed authentication bypass where passkey-only
+  setups (without a password) would incorrectly allow unauthenticated access
+  on local connections, because the `has_password()` check returned false
+  even though `is_setup_complete()` was true.
 
 ## [0.5.0] - 2026-02-09
 

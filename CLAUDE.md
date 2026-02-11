@@ -1,11 +1,12 @@
 ---
-description: "Git workflow standards: proper commit messages, pre-commit checks, and git worktree usage for independent feature work"
+description: "Moltis engineering guide for Claude/Codex agents: Rust architecture, testing, security, and release workflows"
 alwaysApply: true
 ---
 
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) and agents when
+working with code in this repository.
 
 ## General
 
@@ -220,6 +221,30 @@ whichever is already imported in the crate you're editing, but default to
 `time` for new code since it's lighter.
 
 ### General style
+
+- **Prefer guard clauses (early returns)** over nested `if` blocks. Check
+  for edge cases at the top of a function or block and `return` immediately,
+  then continue with the main logic at the top indentation level. This
+  reduces nesting and makes the happy path easier to follow.
+
+  ```rust
+  // Good — guard clause, flat structure
+  if items.is_empty() {
+      return;
+  }
+  info!(count = items.len(), "processing items");
+  for item in items { /* ... */ }
+
+  // Bad — unnecessary nesting
+  if !items.is_empty() {
+      info!(count = items.len(), "processing items");
+      for item in items { /* ... */ }
+  }
+  ```
+
+  Apply this to all control flow: `return`, `return Ok(...)`, `continue`,
+  `break`. When a function has multiple preconditions, stack the guards at
+  the top so the reader hits the happy path quickly.
 
 - Prefer iterators and combinators (`.map()`, `.filter()`, `.collect()`)
   over manual loops when they express intent more clearly.
@@ -569,8 +594,9 @@ npx playwright test --headed         # Run with visible browser
 ## Code Quality
 
 ```bash
-cargo +nightly fmt       # Format code (uses nightly)
-cargo +nightly clippy    # Run linter (uses nightly)
+just format              # Format Rust with pinned nightly toolchain
+just format-check        # Exact format check used by CI/release
+just release-preflight   # Rust pre-release gates (fmt + clippy)
 cargo check              # Fast compile check without producing binary
 taplo fmt                # Format TOML files (Cargo.toml, etc.)
 biome check --write      # Lint & format JavaScript files (installed via mise)
@@ -938,8 +964,8 @@ concrete (commands to run, UI paths to click, and expected results).
 - [ ] **No secrets or private tokens are included** (CRITICAL)
 - [ ] `taplo fmt` (when TOML files were modified)
 - [ ] `biome check --write` (when JS files were modified; CI runs `biome ci`)
-- [ ] Code is formatted (`cargo +nightly fmt --all` / `just format-check` passes)
-- [ ] Code passes clippy linting (`cargo +nightly clippy --workspace --all-targets --all-features` / `just lint` passes)
+- [ ] Code is formatted (`just format-check` passes)
+- [ ] Code passes release clippy gate (`just release-preflight` passes)
 - [ ] All tests pass (`cargo test`)
 - [ ] Commit message follows conventional commit format
 - [ ] Changes are logically grouped in the commit

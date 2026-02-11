@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/moltis-org/moltis-website/main/favicon.svg" alt="Moltis" width="120">
+<a href="https://moltis.org"><img src="https://raw.githubusercontent.com/moltis-org/moltis-website/main/favicon-512.svg" alt="Moltis" width="120"></a>
 
 # Moltis
 
@@ -10,8 +10,8 @@
 [![codecov](https://codecov.io/gh/moltis-org/moltis/graph/badge.svg)](https://codecov.io/gh/moltis-org/moltis)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json&style=flat&label=CodSpeed)](https://codspeed.io/moltis-org/moltis)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-stable-orange.svg)](https://www.rust-lang.org)
-[![Discord](https://img.shields.io/discord/1469505370169933837?color=5865F2&label=Discord&logo=discord&logoColor=white)](https://discord.gg/t873en2E)
+[![Rust](https://img.shields.io/badge/Rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
+<!-- [![Discord](https://img.shields.io/discord/1469505370169933837?color=5865F2&label=Discord&logo=discord&logoColor=white)](https://discord.gg/t873en2E) -->
 
 [Features](#features) • [Installation](#installation) • [Build](#build) • [Cloud Deployment](#cloud-deployment) • [How It Works](#how-it-works) • [Hooks](#hooks) • [Discord](https://discord.gg/t873en2E)
 
@@ -42,8 +42,8 @@ cargo install moltis --git https://github.com/moltis-org/moltis
 
 ## Features
 
-- **Multi-provider LLM support** — OpenAI, Anthropic, GitHub Copilot, and more
-  through a trait-based provider architecture
+- **Multi-provider LLM support** — OpenAI Codex, GitHub Copilot, and Local
+  LLM through a trait-based provider architecture
 - **Streaming responses** — real-time token streaming for a responsive user
   experience, including when tools are enabled (tool calls stream argument
   deltas as they arrive)
@@ -72,10 +72,8 @@ cargo install moltis --git https://github.com/moltis-org/moltis
 - **Web browsing** — web search (Brave, Perplexity) and URL fetching with
   readability extraction and SSRF protection
 - **Voice support** — Text-to-speech (TTS) and speech-to-text (STT) with
-  multiple providers. TTS: ElevenLabs, OpenAI, Google Cloud, Piper (local),
-  Coqui TTS (local). STT: OpenAI Whisper, Groq, Deepgram, Google Cloud,
-  Mistral Voxtral, ElevenLabs Scribe, whisper.cpp (local), sherpa-onnx (local).
-  Configure and manage providers from the Settings UI.
+  multiple cloud and local providers. Configure and manage voice providers
+  from the Settings UI.
 - **Scheduled tasks** — cron-based task execution
 - **OAuth flows** — built-in OAuth2 for provider authentication
 - **TLS support** — automatic self-signed certificate generation
@@ -89,6 +87,10 @@ cargo install moltis --git https://github.com/moltis-org/moltis
   images, configurable packages, and per-session isolation
 - **Authentication** — password and passkey (WebAuthn) authentication with
   session cookies, API key support, and a first-run setup code flow
+- **Endpoint throttling** — built-in per-IP request throttling for
+  unauthenticated traffic when auth is enforced, with strict limits for
+  password login attempts and sensible caps for API/WS traffic (`429` +
+  `Retry-After` on limit hit)
 - **WebSocket security** — Origin validation to prevent Cross-Site WebSocket
   Hijacking (CSWSH)
 - **Onboarding wizard** — guided setup for agent identity (name, emoji,
@@ -135,31 +137,39 @@ in a container, you need to give it access to the host's container runtime.
 docker run -d \
   --name moltis \
   -p 13131:13131 \
+  -p 13132:13132 \
   -v moltis-config:/home/moltis/.config/moltis \
   -v moltis-data:/home/moltis/.moltis \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/penso/moltis:latest
+  ghcr.io/moltis-org/moltis:latest
 
 # Podman (rootless)
 podman run -d \
   --name moltis \
   -p 13131:13131 \
+  -p 13132:13132 \
   -v moltis-config:/home/moltis/.config/moltis \
   -v moltis-data:/home/moltis/.moltis \
   -v /run/user/$(id -u)/podman/podman.sock:/var/run/docker.sock \
-  ghcr.io/penso/moltis:latest
+  ghcr.io/moltis-org/moltis:latest
 
 # Podman (rootful)
 podman run -d \
   --name moltis \
   -p 13131:13131 \
+  -p 13132:13132 \
   -v moltis-config:/home/moltis/.config/moltis \
   -v moltis-data:/home/moltis/.moltis \
   -v /run/podman/podman.sock:/var/run/docker.sock \
-  ghcr.io/penso/moltis:latest
+  ghcr.io/moltis-org/moltis:latest
 ```
 
-Open `http://localhost:13131` in your browser and complete the setup.
+Open `https://localhost:13131` in your browser and complete the setup.
+
+Moltis generates a self-signed TLS certificate on first run. To trust it and
+remove browser warnings, download the CA certificate from
+`http://localhost:13132/certs/ca.pem` and add it to your system trust store
+(Keychain on macOS, `update-ca-certificates` on Linux).
 
 **Important notes:**
 
@@ -229,8 +239,8 @@ cloud relay required.
         │        │                        │
         │  ┌─────▼─────────────────────┐  │
         │  │    Provider Registry      │  │
-        │  │  Anthropic · OpenAI ·     │  │
-        │  │  Mistral · Copilot · …    │  │
+        │  │  Multiple providers       │  │
+        │  │  (Codex · Copilot · Local)│  │
         │  └───────────────────────────┘  │
         ├─────────────────────────────────┤
         │  Sessions  │ Memory  │  Hooks   │
