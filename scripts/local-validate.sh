@@ -202,6 +202,36 @@ repair_stale_llama_build_dirs() {
   shopt -u nullglob
 }
 
+cleanup_e2e_ports() {
+  if ! command -v lsof >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local port
+  for port in "${MOLTIS_E2E_PORT:-18789}" "${MOLTIS_E2E_ONBOARDING_PORT:-18790}"; do
+    local pids
+    pids="$(lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null || true)"
+    if [[ -z "$pids" ]]; then
+      continue
+    fi
+
+    echo "Stopping stale process(es) on TCP ${port}: ${pids//$'\n'/ }"
+    while IFS= read -r pid; do
+      [[ -n "$pid" ]] && kill -TERM "$pid" 2>/dev/null || true
+    done <<<"$pids"
+
+    sleep 1
+
+    local remaining
+    remaining="$(lsof -ti "tcp:${port}" -sTCP:LISTEN 2>/dev/null || true)"
+    if [[ -n "$remaining" ]]; then
+      while IFS= read -r pid; do
+        [[ -n "$pid" ]] && kill -KILL "$pid" 2>/dev/null || true
+      done <<<"$remaining"
+    fi
+  done
+}
+
 set_status() {
   local state="$1"
   local context="$2"
@@ -369,6 +399,7 @@ run_check "local/lockfile" "cargo fetch --locked"
 # These do not wait on local/zizmor (advisory and non-blocking).
 run_check "local/lint" "$lint_cmd"
 run_check "local/test" "$test_cmd"
+cleanup_e2e_ports
 run_check "local/e2e" "$e2e_cmd"
 
 # Coverage (optional — requires cargo-llvm-cov).
