@@ -213,7 +213,7 @@ curl -fsSL https://www.moltis.org/install.sh | sh
 </div>
 <h2 id="key-features"><a class="header" href="#key-features">Key Features</a></h2>
 <ul>
-<li><strong>30+ LLM Providers</strong> — Anthropic, OpenAI, Google, Mistral, local models, and more</li>
+<li><strong>Multiple LLM Providers</strong> — OpenAI Codex, GitHub Copilot, Local LLM*</li>
 <li><strong>Streaming-First</strong> — Responses appear as tokens arrive, not after completion</li>
 <li><strong>Sandboxed Execution</strong> — Commands run in isolated containers (Docker or Apple Container)</li>
 <li><strong>MCP Support</strong> — Connect to Model Context Protocol servers for extended capabilities</li>
@@ -223,6 +223,7 @@ curl -fsSL https://www.moltis.org/install.sh | sh
 <li><strong>Hook System</strong> — Observe, modify, or block actions at any lifecycle point</li>
 <li><strong>Compile-Time Safety</strong> — Misconfigurations caught by <code>cargo check</code>, not runtime crashes</li>
 </ul>
+<p><em>More providers are coming soon.</em></p>
 <h2 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h2>
 <pre><code class="language-bash"># Install
 curl -fsSL https://www.moltis.org/install.sh | sh
@@ -265,7 +266,7 @@ moltis
         │        │                      │
         │   ┌────▼────────────────┐     │
         │   │  Provider Registry  │     │
-        │   │ Claude · GPT · Gemini │   │
+        │   │ Codex · Copilot · Local* │   │
         │   └─────────────────────┘     │
         └───────────────────────────────┘
                         │

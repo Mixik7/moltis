@@ -211,7 +211,7 @@ curl -fsSL https://www.moltis.org/install.sh | sh
 </div>
 <h2 id="key-features"><a class="header" href="#key-features">Key Features</a></h2>
 <ul>
-<li><strong>30+ LLM Providers</strong> — Anthropic, OpenAI, Google, Mistral, local models, and more</li>
+<li><strong>Multiple LLM Providers</strong> — OpenAI Codex, GitHub Copilot, Local LLM*</li>
 <li><strong>Streaming-First</strong> — Responses appear as tokens arrive, not after completion</li>
 <li><strong>Sandboxed Execution</strong> — Commands run in isolated containers (Docker or Apple Container)</li>
 <li><strong>MCP Support</strong> — Connect to Model Context Protocol servers for extended capabilities</li>
@@ -221,6 +221,7 @@ curl -fsSL https://www.moltis.org/install.sh | sh
 <li><strong>Hook System</strong> — Observe, modify, or block actions at any lifecycle point</li>
 <li><strong>Compile-Time Safety</strong> — Misconfigurations caught by <code>cargo check</code>, not runtime crashes</li>
 </ul>
+<p><em>More providers are coming soon.</em></p>
 <h2 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h2>
 <pre><code class="language-bash"># Install
 curl -fsSL https://www.moltis.org/install.sh | sh
@@ -263,7 +264,7 @@ moltis
         │        │                      │
         │   ┌────▼────────────────┐     │
         │   │  Provider Registry  │     │
-        │   │ Claude · GPT · Gemini │   │
+        │   │ Codex · Copilot · Local* │   │
         │   └─────────────────────┘     │
         └───────────────────────────────┘
                         │
@@ -330,25 +331,26 @@ moltis
 🌐 Open http://localhost:13131 in your browser
 </code></pre>
 <h2 id="3-configure-a-provider"><a class="header" href="#3-configure-a-provider">3. Configure a Provider</a></h2>
-<p>You need an LLM API key to chat. The easiest options:</p>
-<h3 id="option-a-anthropic-recommended"><a class="header" href="#option-a-anthropic-recommended">Option A: Anthropic (Recommended)</a></h3>
+<p>You need an LLM provider configured to chat. Current options are:</p>
+<h3 id="option-a-openai-codex-oauth"><a class="header" href="#option-a-openai-codex-oauth">Option A: OpenAI Codex (OAuth)</a></h3>
 <ol>
-<li>Get an API key from <a href="https://console.anthropic.com">console.anthropic.com</a></li>
 <li>In Moltis, go to <strong>Settings</strong> → <strong>Providers</strong></li>
-<li>Click <strong>Anthropic</strong> → Enter your API key → <strong>Save</strong></li>
+<li>Click <strong>OpenAI Codex</strong> → <strong>Connect</strong></li>
+<li>Complete the OAuth flow</li>
 </ol>
-<h3 id="option-b-openai"><a class="header" href="#option-b-openai">Option B: OpenAI</a></h3>
+<h3 id="option-b-github-copilot-oauth"><a class="header" href="#option-b-github-copilot-oauth">Option B: GitHub Copilot (OAuth)</a></h3>
 <ol>
-<li>Get an API key from <a href="https://platform.openai.com">platform.openai.com</a></li>
 <li>In Moltis, go to <strong>Settings</strong> → <strong>Providers</strong></li>
-<li>Click <strong>OpenAI</strong> → Enter your API key → <strong>Save</strong></li>
+<li>Click <strong>GitHub Copilot</strong> → <strong>Connect</strong></li>
+<li>Complete the GitHub OAuth flow</li>
 </ol>
-<h3 id="option-c-local-model-free"><a class="header" href="#option-c-local-model-free">Option C: Local Model (Free)</a></h3>
+<h3 id="option-c-local-llm-offline"><a class="header" href="#option-c-local-llm-offline">Option C: Local LLM (Offline)</a></h3>
 <ol>
-<li>Install <a href="https://ollama.ai">Ollama</a>: <code>curl -fsSL https://ollama.ai/install.sh | sh</code></li>
-<li>Pull a model: <code>ollama pull llama3.2</code></li>
-<li>In Moltis, configure Ollama in <strong>Settings</strong> → <strong>Providers</strong></li>
+<li>In Moltis, go to <strong>Settings</strong> → <strong>Providers</strong></li>
+<li>Click <strong>Local LLM</strong></li>
+<li>Choose a model and save</li>
 </ol>
+<p><em>More providers are coming soon.</em></p>
 <h2 id="4-chat"><a class="header" href="#4-chat">4. Chat!</a></h2>
 <p>Go to the <strong>Chat</strong> tab and start a conversation:</p>
 <pre><code>You: Write a Python function to check if a number is prime
@@ -569,32 +571,27 @@ host = "0.0.0.0"               # Listen address
 
 [agent]
 name = "Moltis"                 # Agent display name
-model = "claude-sonnet-4-20250514"  # Default model
+model = "gpt-5.2-codex"         # Default model
 timeout = 600                   # Agent run timeout (seconds)
 max_iterations = 25             # Max tool call iterations per run
 </code></pre>
 <h2 id="llm-providers"><a class="header" href="#llm-providers">LLM Providers</a></h2>
 <p>Provider API keys are stored separately in <code>~/.config/moltis/provider_keys.json</code> for security. Configure them through the web UI or directly in the JSON file.</p>
 <pre><code class="language-toml">[providers]
-default = "anthropic"           # Default provider
+default = "openai-codex"        # Default provider
 
-[providers.anthropic]
+[providers.openai-codex]
 enabled = true
-models = [
-    "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514",
-    "claude-3-5-haiku-20241022",
-]
 
-[providers.openai]
+[providers.github-copilot]
 enabled = true
-models = [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "o1-preview",
-]
+
+[providers.local]
+enabled = true
+model = "qwen2.5-coder-7b-q4_k_m"
 </code></pre>
 <p>See <a href="providers.html">Providers</a> for detailed provider configuration.</p>
+<p><em>More providers are coming soon.</em></p>
 <h2 id="sandbox-configuration"><a class="header" href="#sandbox-configuration">Sandbox Configuration</a></h2>
 <p>Commands run inside isolated containers for security:</p>
 <pre><code class="language-toml">[tools.exec.sandbox]
@@ -730,12 +727,12 @@ host = "0.0.0.0"
 
 [agent]
 name = "Atlas"
-model = "claude-sonnet-4-20250514"
+model = "gpt-5.2-codex"
 timeout = 600
 max_iterations = 25
 
 [providers]
-default = "anthropic"
+default = "openai-codex"
 
 [tools.exec.sandbox]
 enabled = true
@@ -867,100 +864,61 @@ npx playwright show-trace test-results/&lt;test-dir&gt;/trace.zip
 <code>local/e2e</code> commit status, published by <code>./scripts/local-validate.sh</code>.</p>
 <p>Pushes to <code>main</code>, tags, and manual dispatch still run the hosted E2E job.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="llm-providers-1"><a class="header" href="#llm-providers-1">LLM Providers</a></h1>
-<p>Moltis supports 30+ LLM providers through a trait-based architecture. Configure providers through the web UI or directly in configuration files.</p>
-<h2 id="supported-providers"><a class="header" href="#supported-providers">Supported Providers</a></h2>
-<h3 id="tier-1-full-support"><a class="header" href="#tier-1-full-support">Tier 1 (Full Support)</a></h3>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Models</th><th>Tool Calling</th><th>Streaming</th></tr></thead><tbody>
-<tr><td><strong>Anthropic</strong></td><td>Claude 4, Claude 3.5, Claude 3</td><td>✅</td><td>✅</td></tr>
-<tr><td><strong>OpenAI</strong></td><td>GPT-4o, GPT-4, o1, o3</td><td>✅</td><td>✅</td></tr>
-<tr><td><strong>Google</strong></td><td>Gemini 2.0, Gemini 1.5</td><td>✅</td><td>✅</td></tr>
-<tr><td><strong>GitHub Copilot</strong></td><td>GPT-4o, Claude</td><td>✅</td><td>✅</td></tr>
+<p>Moltis supports multiple LLM providers through a trait-based architecture.
+Configure providers through the web UI or directly in configuration files.</p>
+<h2 id="currently-available-providers"><a class="header" href="#currently-available-providers">Currently Available Providers*</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Auth</th><th>Notes</th></tr></thead><tbody>
+<tr><td><strong>OpenAI Codex</strong></td><td>OAuth</td><td>Codex-focused cloud models</td></tr>
+<tr><td><strong>GitHub Copilot</strong></td><td>OAuth</td><td>Requires active Copilot subscription</td></tr>
+<tr><td><strong>Local LLM</strong></td><td>Local runtime</td><td>Runs models on your machine</td></tr>
 </tbody></table>
 </div>
-<h3 id="tier-2-good-support"><a class="header" href="#tier-2-good-support">Tier 2 (Good Support)</a></h3>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Models</th><th>Tool Calling</th><th>Streaming</th></tr></thead><tbody>
-<tr><td><strong>Mistral</strong></td><td>Mistral Large, Codestral</td><td>✅</td><td>✅</td></tr>
-<tr><td><strong>Groq</strong></td><td>Llama 3, Mixtral</td><td>✅</td><td>✅</td></tr>
-<tr><td><strong>Together</strong></td><td>Various open models</td><td>✅</td><td>✅</td></tr>
-<tr><td><strong>Fireworks</strong></td><td>Various open models</td><td>✅</td><td>✅</td></tr>
-<tr><td><strong>DeepSeek</strong></td><td>DeepSeek V3, Coder</td><td>✅</td><td>✅</td></tr>
-</tbody></table>
-</div>
-<h3 id="tier-3-basic-support"><a class="header" href="#tier-3-basic-support">Tier 3 (Basic Support)</a></h3>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Notes</th></tr></thead><tbody>
-<tr><td><strong>OpenRouter</strong></td><td>Aggregator for 100+ models</td></tr>
-<tr><td><strong>Ollama</strong></td><td>Local models</td></tr>
-<tr><td><strong>Venice</strong></td><td>Privacy-focused</td></tr>
-<tr><td><strong>Cerebras</strong></td><td>Fast inference</td></tr>
-<tr><td><strong>SambaNova</strong></td><td>Enterprise</td></tr>
-<tr><td><strong>Cohere</strong></td><td>Command models</td></tr>
-<tr><td><strong>AI21</strong></td><td>Jamba models</td></tr>
-</tbody></table>
-</div>
+<p>*More providers are coming soon.</p>
 <h2 id="configuration-1"><a class="header" href="#configuration-1">Configuration</a></h2>
 <h3 id="via-web-ui-recommended"><a class="header" href="#via-web-ui-recommended">Via Web UI (Recommended)</a></h3>
 <ol>
-<li>Open Moltis in your browser</li>
-<li>Go to <strong>Settings</strong> → <strong>Providers</strong></li>
-<li>Click on a provider card</li>
-<li>Enter your API key</li>
-<li>Select your preferred model</li>
+<li>Open Moltis in your browser.</li>
+<li>Go to <strong>Settings</strong> -&gt; <strong>Providers</strong>.</li>
+<li>Choose a provider card.</li>
+<li>Complete OAuth or enter your API key.</li>
+<li>Select your preferred model.</li>
 </ol>
 <h3 id="via-configuration-files"><a class="header" href="#via-configuration-files">Via Configuration Files</a></h3>
 <p>Provider credentials are stored in <code>~/.config/moltis/provider_keys.json</code>:</p>
 <pre><code class="language-json">{
-  "anthropic": {
-    "apiKey": "sk-ant-...",
-    "model": "claude-sonnet-4-20250514"
-  },
-  "openai": {
-    "apiKey": "sk-...",
-    "model": "gpt-4o"
+  "openai-codex": {
+    "model": "gpt-5.2-codex"
   }
 }
 </code></pre>
 <p>Enable providers in <code>moltis.toml</code>:</p>
 <pre><code class="language-toml">[providers]
-default = "anthropic"
+default = "openai-codex"
 
-[providers.anthropic]
+[providers.openai-codex]
 enabled = true
-models = [
-    "claude-sonnet-4-20250514",
-    "claude-opus-4-20250514",
-]
 
-[providers.openai]
+[providers.github-copilot]
 enabled = true
+
+[providers.local]
+enabled = true
+model = "qwen2.5-coder-7b-q4_k_m"
 </code></pre>
-<h2 id="provider-specific-setup"><a class="header" href="#provider-specific-setup">Provider-Specific Setup</a></h2>
-<h3 id="anthropic"><a class="header" href="#anthropic">Anthropic</a></h3>
+<h2 id="provider-setup"><a class="header" href="#provider-setup">Provider Setup</a></h2>
+<h3 id="openai-codex"><a class="header" href="#openai-codex">OpenAI Codex</a></h3>
+<p>OpenAI Codex uses OAuth token import and OAuth-based access.</p>
 <ol>
-<li>Get an API key from <a href="https://console.anthropic.com">console.anthropic.com</a></li>
-<li>Enter it in Settings → Providers → Anthropic</li>
-</ol>
-<div id="admonition-tip" class="admonition admonish-tip" role="note" aria-labelledby="admonition-tip-title">
-<div class="admonition-title">
-<div id="admonition-tip-title">
-<p>Tip</p>
-</div>
-<a class="admonition-anchor-link" href="providers.html#admonition-tip"></a>
-</div>
-<div>
-<p>Claude Sonnet 4 offers the best balance of capability and cost for most coding tasks.</p>
-</div>
-</div>
-<h3 id="openai"><a class="header" href="#openai">OpenAI</a></h3>
-<ol>
-<li>Get an API key from <a href="https://platform.openai.com">platform.openai.com</a></li>
-<li>Enter it in Settings → Providers → OpenAI</li>
+<li>Go to <strong>Settings</strong> -&gt; <strong>Providers</strong> -&gt; <strong>OpenAI Codex</strong>.</li>
+<li>Click <strong>Connect</strong> and complete the auth flow.</li>
+<li>Choose a Codex model.</li>
 </ol>
 <h3 id="github-copilot"><a class="header" href="#github-copilot">GitHub Copilot</a></h3>
-<p>GitHub Copilot uses OAuth authentication:</p>
+<p>GitHub Copilot uses OAuth authentication.</p>
 <ol>
-<li>Click <strong>Connect</strong> in Settings → Providers → GitHub Copilot</li>
-<li>Complete the GitHub OAuth flow</li>
-<li>Authorize Moltis to access Copilot</li>
+<li>Go to <strong>Settings</strong> -&gt; <strong>Providers</strong> -&gt; <strong>GitHub Copilot</strong>.</li>
+<li>Click <strong>Connect</strong>.</li>
+<li>Complete the GitHub OAuth flow.</li>
 </ol>
 <div id="admonition-info" class="admonition admonish-info" role="note" aria-labelledby="admonition-info-title">
 <div class="admonition-title">
@@ -973,94 +931,36 @@ enabled = true
 <p>Requires an active GitHub Copilot subscription.</p>
 </div>
 </div>
-<h3 id="google-gemini"><a class="header" href="#google-gemini">Google (Gemini)</a></h3>
+<h3 id="local-llm"><a class="header" href="#local-llm">Local LLM</a></h3>
+<p>Local LLM runs models directly on your machine.</p>
 <ol>
-<li>Get an API key from <a href="https://aistudio.google.com">aistudio.google.com</a></li>
-<li>Enter it in Settings → Providers → Google</li>
+<li>Go to <strong>Settings</strong> -&gt; <strong>Providers</strong> -&gt; <strong>Local LLM</strong>.</li>
+<li>Choose a model from the local registry or download one.</li>
+<li>Save and select it as your active model.</li>
 </ol>
-<h3 id="ollama-local-models"><a class="header" href="#ollama-local-models">Ollama (Local Models)</a></h3>
-<p>Run models locally with <a href="https://ollama.ai">Ollama</a>:</p>
-<ol>
-<li>Install Ollama: <code>curl -fsSL https://ollama.ai/install.sh | sh</code></li>
-<li>Pull a model: <code>ollama pull llama3.2</code></li>
-<li>Configure in Moltis:</li>
-</ol>
-<pre><code class="language-json">{
-  "ollama": {
-    "baseUrl": "http://localhost:11434",
-    "model": "llama3.2"
-  }
-}
-</code></pre>
-<h3 id="openrouter"><a class="header" href="#openrouter">OpenRouter</a></h3>
-<p>Access 100+ models through one API:</p>
-<ol>
-<li>Get an API key from <a href="https://openrouter.ai">openrouter.ai</a></li>
-<li>Enter it in Settings → Providers → OpenRouter</li>
-<li>Specify the model ID you want to use</li>
-</ol>
-<pre><code class="language-json">{
-  "openrouter": {
-    "apiKey": "sk-or-...",
-    "model": "anthropic/claude-3.5-sonnet"
-  }
-}
-</code></pre>
-<h2 id="custom-base-urls"><a class="header" href="#custom-base-urls">Custom Base URLs</a></h2>
-<p>For providers with custom endpoints (enterprise, proxies):</p>
-<pre><code class="language-json">{
-  "openai": {
-    "apiKey": "sk-...",
-    "baseUrl": "https://your-proxy.example.com/v1",
-    "model": "gpt-4o"
-  }
-}
-</code></pre>
-<h2 id="switching-providers"><a class="header" href="#switching-providers">Switching Providers</a></h2>
-<h3 id="per-session"><a class="header" href="#per-session">Per-Session</a></h3>
-<p>In the chat interface, use the model selector dropdown to switch providers/models for the current session.</p>
-<h3 id="per-message"><a class="header" href="#per-message">Per-Message</a></h3>
-<p>Use the <code>/model</code> command to switch models mid-conversation:</p>
-<pre><code>/model claude-opus-4-20250514
-</code></pre>
-<h3 id="default-provider"><a class="header" href="#default-provider">Default Provider</a></h3>
-<p>Set the default in <code>moltis.toml</code>:</p>
-<pre><code class="language-toml">[providers]
-default = "anthropic"
-
-[agent]
-model = "claude-sonnet-4-20250514"
-</code></pre>
-<h2 id="model-capabilities"><a class="header" href="#model-capabilities">Model Capabilities</a></h2>
-<p>Different models have different strengths:</p>
-<div class="table-wrapper"><table><thead><tr><th>Use Case</th><th>Recommended Model</th></tr></thead><tbody>
-<tr><td>General coding</td><td>Claude Sonnet 4, GPT-4o</td></tr>
-<tr><td>Complex reasoning</td><td>Claude Opus 4, o1</td></tr>
-<tr><td>Fast responses</td><td>Claude Haiku, GPT-4o-mini</td></tr>
-<tr><td>Long context</td><td>Claude (200k), Gemini (1M+)</td></tr>
-<tr><td>Local/private</td><td>Llama 3 via Ollama</td></tr>
-</tbody></table>
-</div>
+<h2 id="switching-models"><a class="header" href="#switching-models">Switching Models</a></h2>
+<ul>
+<li><strong>Per session</strong>: Use the model selector in the chat UI.</li>
+<li><strong>Per message</strong>: Use <code>/model &lt;name&gt;</code> in chat.</li>
+<li><strong>Global default</strong>: Set <code>[providers].default</code> and <code>[agent].model</code> in <code>moltis.toml</code>.</li>
+</ul>
 <h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
 <h3 id="model-not-available"><a class="header" href="#model-not-available">“Model not available”</a></h3>
-<p>The model may not be enabled for your account or region. Check:</p>
 <ul>
-<li>Your API key has access to the model</li>
-<li>The model ID is spelled correctly</li>
-<li>Your account has sufficient credits</li>
+<li>Check provider auth is still valid.</li>
+<li>Check model ID spelling.</li>
+<li>Check account access for that model.</li>
 </ul>
 <h3 id="rate-limited"><a class="header" href="#rate-limited">“Rate limited”</a></h3>
-<p>You’ve exceeded the provider’s rate limits. Solutions:</p>
 <ul>
-<li>Wait and retry</li>
-<li>Use a different provider</li>
-<li>Upgrade your API plan</li>
+<li>Retry after a short delay.</li>
+<li>Switch provider/model.</li>
+<li>Upgrade provider quota if needed.</li>
 </ul>
 <h3 id="invalid-api-key"><a class="header" href="#invalid-api-key">“Invalid API key”</a></h3>
 <ul>
-<li>Verify the key is correct (no extra spaces)</li>
-<li>Check the key hasn’t expired</li>
-<li>Ensure the key has the required permissions</li>
+<li>Verify the key has no extra spaces.</li>
+<li>Verify it is active and has required permissions.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="mcp-servers-1"><a class="header" href="#mcp-servers-1">MCP Servers</a></h1>
 <p>Moltis supports the <a href="https://modelcontextprotocol.io">Model Context Protocol (MCP)</a> for connecting to external tool servers. MCP servers extend your agent’s capabilities without modifying Moltis itself.</p>
@@ -1507,7 +1407,7 @@ timeout_ms = 30000
 <div class="table-wrapper"><table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
 <tr><td><code>session_key</code></td><td>string</td><td>Session identifier</td></tr>
 <tr><td><code>provider</code></td><td>string</td><td>Provider name (e.g. “openai”, “anthropic”)</td></tr>
-<tr><td><code>model</code></td><td>string</td><td>Model ID (e.g. “gpt-4o”, “claude-sonnet-4-20250514”)</td></tr>
+<tr><td><code>model</code></td><td>string</td><td>Model ID (e.g. “gpt-5.2-codex”, “qwen2.5-coder-7b-q4_k_m”)</td></tr>
 <tr><td><code>messages</code></td><td>array</td><td>Serialized message array (OpenAI format)</td></tr>
 <tr><td><code>tool_count</code></td><td>number</td><td>Number of tool schemas sent to the LLM</td></tr>
 <tr><td><code>iteration</code></td><td>number</td><td>1-based loop iteration</td></tr>
@@ -2076,23 +1976,14 @@ voice = ["dep:moltis-voice"]
 └─────────────────────────────────────────────────────────────┘
 </code></pre>
 <h2 id="text-to-speech-tts"><a class="header" href="#text-to-speech-tts">Text-to-Speech (TTS)</a></h2>
-<h3 id="supported-providers-1"><a class="header" href="#supported-providers-1">Supported Providers</a></h3>
-<p>Moltis supports 5 TTS providers: 3 cloud-based and 2 local.</p>
-<h4 id="cloud-providers"><a class="header" href="#cloud-providers">Cloud Providers</a></h4>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Model</th><th>Latency</th><th>Notes</th></tr></thead><tbody>
-<tr><td>ElevenLabs</td><td><code>eleven_flash_v2_5</code></td><td>~75ms</td><td>Lowest latency, voice cloning</td></tr>
-<tr><td>ElevenLabs</td><td><code>eleven_turbo_v2_5</code></td><td>~250ms</td><td>Higher quality</td></tr>
-<tr><td>OpenAI</td><td><code>tts-1</code></td><td>~200ms</td><td>Real-time optimized</td></tr>
-<tr><td>OpenAI</td><td><code>tts-1-hd</code></td><td>~400ms</td><td>Higher quality</td></tr>
-<tr><td>Google Cloud</td><td>Various</td><td>~150ms</td><td>380+ voices, 50+ languages</td></tr>
+<h3 id="supported-providers"><a class="header" href="#supported-providers">Supported Providers</a></h3>
+<p>Moltis supports multiple TTS providers across cloud and local backends.</p>
+<div class="table-wrapper"><table><thead><tr><th>Category</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Cloud TTS providers</td><td>Hosted neural voices with low-latency streaming</td></tr>
+<tr><td>Local TTS providers</td><td>Offline/on-device synthesis for privacy-sensitive workflows</td></tr>
 </tbody></table>
 </div>
-<h4 id="local-providers"><a class="header" href="#local-providers">Local Providers</a></h4>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Binary/Server</th><th>Notes</th></tr></thead><tbody>
-<tr><td>Piper</td><td><code>piper</code> binary</td><td>Fast neural TTS, many voices, runs offline</td></tr>
-<tr><td>Coqui TTS</td><td>TTS server</td><td>High-quality neural TTS with voice cloning</td></tr>
-</tbody></table>
-</div>
+<p><em>More voice providers are coming soon.</em></p>
 <h3 id="configuration-4"><a class="header" href="#configuration-4">Configuration</a></h3>
 <p>Set API keys via environment variables:</p>
 <pre><code class="language-bash">export ELEVENLABS_API_KEY=your-key-here
@@ -2269,28 +2160,18 @@ endpoint = "http://localhost:5002"
 </tbody></table>
 </div>
 <h2 id="speech-to-text-stt"><a class="header" href="#speech-to-text-stt">Speech-to-Text (STT)</a></h2>
-<h3 id="supported-providers-2"><a class="header" href="#supported-providers-2">Supported Providers</a></h3>
-<p>Moltis supports 8 STT providers: 5 cloud-based and 3 local.</p>
-<h4 id="cloud-providers-1"><a class="header" href="#cloud-providers-1">Cloud Providers</a></h4>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Model</th><th>Notes</th></tr></thead><tbody>
-<tr><td>OpenAI Whisper</td><td><code>whisper-1</code></td><td>Best accuracy, handles accents, noise, technical terms</td></tr>
-<tr><td>Groq</td><td><code>whisper-large-v3-turbo</code></td><td>Ultra-fast Whisper inference on Groq hardware</td></tr>
-<tr><td>Deepgram</td><td><code>nova-3</code></td><td>Fast and accurate with smart formatting</td></tr>
-<tr><td>Google Cloud</td><td>Various</td><td>Supports 125+ languages</td></tr>
-<tr><td>Mistral AI</td><td><code>voxtral-mini-latest</code></td><td>Fast Voxtral transcription with 13 languages</td></tr>
+<h3 id="supported-providers-1"><a class="header" href="#supported-providers-1">Supported Providers</a></h3>
+<p>Moltis supports multiple STT providers across cloud and local backends.</p>
+<div class="table-wrapper"><table><thead><tr><th>Category</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Cloud STT providers</td><td>Managed transcription APIs with language/model options</td></tr>
+<tr><td>Local STT providers</td><td>Offline transcription through local binaries or services</td></tr>
 </tbody></table>
 </div>
-<h4 id="local-providers-1"><a class="header" href="#local-providers-1">Local Providers</a></h4>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Binary/Server</th><th>Notes</th></tr></thead><tbody>
-<tr><td>Voxtral (Local)</td><td>vLLM server</td><td>Run Voxtral locally via vLLM with OpenAI-compatible API</td></tr>
-<tr><td>whisper.cpp</td><td><code>whisper-cli</code></td><td>Local Whisper inference via C++ port</td></tr>
-<tr><td>sherpa-onnx</td><td><code>sherpa-onnx-offline</code></td><td>Local offline STT via ONNX runtime</td></tr>
-</tbody></table>
-</div>
+<p><em>More voice providers are coming soon.</em></p>
 <h3 id="configuration-5"><a class="header" href="#configuration-5">Configuration</a></h3>
 <pre><code class="language-toml">[voice.stt]
 enabled = true
-provider = "whisper"  # or "groq", "deepgram", "google", "mistral", "whisper-cli", "sherpa-onnx"
+provider = "whisper"  # set to any configured STT provider id
 providers = []        # Optional UI allowlist, empty = show all STT providers
 
 # Cloud providers - API key required
@@ -5339,6 +5220,29 @@ tools grouped by origin.</p>
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
 and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
 <h2 id="unreleased"><a class="header" href="#unreleased">[Unreleased]</a></h2>
+<h2 id="083---2026-02-11"><a class="header" href="#083---2026-02-11">[0.8.3] - 2026-02-11</a></h2>
+<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<ul>
+<li><strong>Linux clippy <code>unused_mut</code> failure</strong>: Fixed a target-specific <code>unused_mut</code>
+warning in browser stale-container cleanup that failed release clippy on
+Linux with <code>-D warnings</code>.</li>
+</ul>
+<h2 id="082---2026-02-11"><a class="header" href="#082---2026-02-11">[0.8.2] - 2026-02-11</a></h2>
+<h3 id="fixed-1"><a class="header" href="#fixed-1">Fixed</a></h3>
+<ul>
+<li><strong>Release clippy environment parity</strong>: The release workflow clippy job now
+runs in the same CUDA-capable environment as main CI, includes the llama
+source git bootstrap step, and installs <code>rustfmt</code> alongside <code>clippy</code>. This
+fixes release clippy failures caused by missing CUDA toolchain/runtime.</li>
+</ul>
+<h2 id="081---2026-02-11"><a class="header" href="#081---2026-02-11">[0.8.1] - 2026-02-11</a></h2>
+<h3 id="fixed-2"><a class="header" href="#fixed-2">Fixed</a></h3>
+<ul>
+<li><strong>Clippy validation parity</strong>: Unified local validation, CI (main), and
+release workflows to use the same clippy command and flags
+(<code>--workspace --all-features --all-targets --timings -D warnings</code>), which
+prevents release-only clippy failures from command drift.</li>
+</ul>
 <h2 id="080---2026-02-11"><a class="header" href="#080---2026-02-11">[0.8.0] - 2026-02-11</a></h2>
 <h3 id="added"><a class="header" href="#added">Added</a></h3>
 <ul>
@@ -5355,7 +5259,7 @@ unrelated containers.</li>
 the modern Apple container CLI flow (<code>container image pull --help</code>) without
 legacy fallback behavior.</li>
 </ul>
-<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<h3 id="fixed-3"><a class="header" href="#fixed-3">Fixed</a></h3>
 <ul>
 <li><strong>Release workflow artifacts</strong>: Disabled docker build record artifact uploads
 in release CI to avoid release workflow failures from missing artifact paths.</li>
@@ -5363,7 +5267,7 @@ in release CI to avoid release workflow failures from missing artifact paths.</l
 release preflight checks with CI formatting/lint gates.</li>
 </ul>
 <h2 id="071---2026-02-11"><a class="header" href="#071---2026-02-11">[0.7.1] - 2026-02-11</a></h2>
-<h3 id="fixed-1"><a class="header" href="#fixed-1">Fixed</a></h3>
+<h3 id="fixed-4"><a class="header" href="#fixed-4">Fixed</a></h3>
 <ul>
 <li><strong>Release format gate</strong>: Included missing Rust formatting updates in release
 history so the release workflow <code>cargo fmt --all -- --check</code> passes for
@@ -5394,7 +5298,7 @@ static while the retry countdown is shown only on the button.</li>
 <code>docs/src/authentication.md</code>, and <code>docs/src/security.md</code>.</li>
 </ul>
 <h2 id="061---2026-02-10"><a class="header" href="#061---2026-02-10">[0.6.1] - 2026-02-10</a></h2>
-<h3 id="fixed-2"><a class="header" href="#fixed-2">Fixed</a></h3>
+<h3 id="fixed-5"><a class="header" href="#fixed-5">Fixed</a></h3>
 <ul>
 <li><strong>Release clippy</strong>: Aligned release workflow clippy command with nightly
 flags (<code>-Z unstable-options</code>, <code>--timings</code>).</li>
@@ -5416,7 +5320,7 @@ event names in the config file.</li>
 decision matrix, credential types, API key scopes, session endpoints,
 and WebSocket auth documentation.</li>
 </ul>
-<h3 id="fixed-3"><a class="header" href="#fixed-3">Fixed</a></h3>
+<h3 id="fixed-6"><a class="header" href="#fixed-6">Fixed</a></h3>
 <ul>
 <li><strong>Browser container lifecycle</strong>: Browser containers (browserless/chrome)
 now have proper lifecycle management — periodic cleanup removes idle
@@ -5472,7 +5376,7 @@ access instead of silently receiving full admin privileges. Keys must specify
 at least one scope explicitly (least-privilege by default).</li>
 </ul>
 <h2 id="041---2026-02-09"><a class="header" href="#041---2026-02-09">[0.4.1] - 2026-02-09</a></h2>
-<h3 id="fixed-4"><a class="header" href="#fixed-4">Fixed</a></h3>
+<h3 id="fixed-7"><a class="header" href="#fixed-7">Fixed</a></h3>
 <ul>
 <li><strong>Clippy lint in map test</strong>: Replace <code>is_some()</code>/<code>unwrap()</code> with <code>if let Some</code> to
 fix <code>clippy::unnecessary_unwrap</code> that broke the v0.4.0 release build.</li>
@@ -5521,7 +5425,7 @@ same validate-first flow as onboarding. Credentials are validated before
 saving (bad keys are never persisted), a model selector appears after
 validation, and OAuth flows show model selection after authentication.</li>
 </ul>
-<h3 id="fixed-5"><a class="header" href="#fixed-5">Fixed</a></h3>
+<h3 id="fixed-8"><a class="header" href="#fixed-8">Fixed</a></h3>
 <ul>
 <li><strong>Docker RAM detection</strong>: Fall back to <code>/proc/meminfo</code> when <code>sysinfo</code> returns
 0 bytes for memory inside Docker/cgroup environments.</li>
@@ -5544,34 +5448,34 @@ skip when no usable container runtime is available (backend = “none”).</li>
 <li><strong>Release CI parallelization</strong>: Split clippy and test into separate parallel
 jobs in the release workflow for faster feedback on GitHub-hosted runners.</li>
 </ul>
-<h3 id="fixed-6"><a class="header" href="#fixed-6">Fixed</a></h3>
+<h3 id="fixed-9"><a class="header" href="#fixed-9">Fixed</a></h3>
 <ul>
 <li><strong>CodSpeed workflow zizmor audit</strong>: Pinned <code>CodSpeedHQ/action@v4</code> to commit
 SHA to satisfy zizmor’s <code>unpinned-uses</code> audit.</li>
 </ul>
 <h2 id="037---2026-02-09"><a class="header" href="#037---2026-02-09">[0.3.7] - 2026-02-09</a></h2>
-<h3 id="fixed-7"><a class="header" href="#fixed-7">Fixed</a></h3>
+<h3 id="fixed-10"><a class="header" href="#fixed-10">Fixed</a></h3>
 <ul>
 <li><strong>Clippy warnings</strong>: Fixed <code>MutexGuard</code> held across await in telegram
 test, <code>field assignment outside initializer</code> in provider setup test, and
 <code>items after test module</code> in gateway services.</li>
 </ul>
 <h2 id="036---2026-02-09"><a class="header" href="#036---2026-02-09">[0.3.6] - 2026-02-09</a></h2>
-<h3 id="fixed-8"><a class="header" href="#fixed-8">Fixed</a></h3>
+<h3 id="fixed-11"><a class="header" href="#fixed-11">Fixed</a></h3>
 <ul>
 <li><strong>Release CI zizmor audit</strong>: Removed <code>rust-cache</code> from the release workflow’s
 clippy-test job entirely instead of using <code>save-if: false</code>, which zizmor does
 not recognize as a cache-poisoning mitigation.</li>
 </ul>
 <h2 id="035---2026-02-09"><a class="header" href="#035---2026-02-09">[0.3.5] - 2026-02-09</a></h2>
-<h3 id="fixed-9"><a class="header" href="#fixed-9">Fixed</a></h3>
+<h3 id="fixed-12"><a class="header" href="#fixed-12">Fixed</a></h3>
 <ul>
 <li><strong>Release CI cache-poisoning</strong>: Set <code>save-if: false</code> on <code>rust-cache</code> in the
 release workflow to satisfy zizmor’s cache-poisoning audit for tag-triggered
 workflows that publish artifacts.</li>
 </ul>
 <h2 id="034---2026-02-09"><a class="header" href="#034---2026-02-09">[0.3.4] - 2026-02-09</a></h2>
-<h3 id="fixed-10"><a class="header" href="#fixed-10">Fixed</a></h3>
+<h3 id="fixed-13"><a class="header" href="#fixed-13">Fixed</a></h3>
 <ul>
 <li><strong>Session file lock contention</strong>: Replaced non-blocking <code>try_write()</code> with
 blocking <code>write()</code> in <code>SessionStore::append()</code> and <code>replace_history()</code> so
@@ -5585,7 +5489,7 @@ format, clippy, and test checks before building any packages, ensuring code
 correctness before artifacts are produced.</li>
 </ul>
 <h2 id="033---2026-02-09"><a class="header" href="#033---2026-02-09">[0.3.3] - 2026-02-09</a></h2>
-<h3 id="fixed-11"><a class="header" href="#fixed-11">Fixed</a></h3>
+<h3 id="fixed-14"><a class="header" href="#fixed-14">Fixed</a></h3>
 <ul>
 <li><strong>OpenAI Codex token refresh panic</strong>: Made <code>get_valid_token()</code> async to fix
 <code>block_on</code> inside async runtime panic when refreshing expired OAuth tokens.</li>
@@ -5712,7 +5616,7 @@ cache-miss token counters in the metrics subsystem.</p>
 <li><strong>Configurable model ordering</strong>: Added <code>chat.priority_models</code> in <code>moltis.toml</code> to pin preferred models at the top of model selectors without rebuilding. Runtime model selectors (<code>models.list</code>, chat model dropdown, Telegram <code>/model</code>) hide unsupported models, while Providers diagnostics continue to show full catalog entries (including unsupported flags).</li>
 <li><strong>Configurable provider offerings in UI</strong>: Added <code>[providers] offered = [...]</code> allowlist in <code>moltis.toml</code> to control which providers are shown in onboarding/provider-picker UI. New config templates default this to <code>["openai", "github-copilot"]</code>; setting <code>offered = []</code> shows all known providers. Configured providers remain visible for management.</li>
 </ul>
-<h3 id="fixed-12"><a class="header" href="#fixed-12">Fixed</a></h3>
+<h3 id="fixed-15"><a class="header" href="#fixed-15">Fixed</a></h3>
 <ul>
 <li>
 <p><strong>Web search DuckDuckGo fallback</strong>: When no search API key (Brave or
@@ -5793,7 +5697,7 @@ personality bootstrapping.</li>
 <ul>
 <li><strong>Reply medium preference handling</strong>: Chat now prefers the same reply medium when possible and falls back to text when a medium cannot be preserved.</li>
 </ul>
-<h3 id="fixed-13"><a class="header" href="#fixed-13">Fixed</a></h3>
+<h3 id="fixed-16"><a class="header" href="#fixed-16">Fixed</a></h3>
 <ul>
 <li><strong>Chat UI reply badge visibility</strong>: Assistant footer now reliably shows the selected reply medium badge.</li>
 <li><strong>Voice UX polish</strong>: Improved microphone timing behavior and preserved settings scroll state in voice configuration views.</li>
@@ -5812,7 +5716,7 @@ plugins manifest and directory into the new unified location.</li>
 <code>[voice]</code> section with provider-list allowlists limited to ElevenLabs for TTS and
 Mistral + ElevenLabs for STT.</li>
 </ul>
-<h3 id="fixed-14"><a class="header" href="#fixed-14">Fixed</a></h3>
+<h3 id="fixed-17"><a class="header" href="#fixed-17">Fixed</a></h3>
 <ul>
 <li><strong>Update checker repository configuration</strong>: The update checker now reads
 <code>server.update_repository_url</code> from <code>moltis.toml</code>, defaults new configs to
@@ -5980,7 +5884,7 @@ Empty lists keep current behavior and show all providers.</p>
 <li><strong>Skill trust lifecycle</strong>: Installed marketplace skills/plugins now track a <code>trusted</code> state and must be trusted before they can be enabled; the skills UI now surfaces untrusted status and supports trust-before-enable.</li>
 <li><strong>Git metadata via gitoxide</strong>: Gateway now resolves branch names, repo HEAD SHAs, and commit timestamps using <code>gix</code> (gitoxide) instead of shelling out to <code>git</code> for those read-only operations.</li>
 </ul>
-<h3 id="fixed-15"><a class="header" href="#fixed-15">Fixed</a></h3>
+<h3 id="fixed-18"><a class="header" href="#fixed-18">Fixed</a></h3>
 <ul>
 <li><strong>OAuth callback on hosted deployments</strong>: OpenAI Codex OAuth now uses the web app origin callback (<code>/auth/callback</code>) in the UI flow instead of hardcoded localhost loopback, allowing DigitalOcean/Fly/Render deployments to complete OAuth successfully.</li>
 <li><strong>Sandbox startup on hosted Docker environments</strong>: Skip sandbox image pre-build when sandbox mode is off, and require Docker daemon accessibility (not just Docker CLI presence) before selecting the Docker sandbox backend.</li>
@@ -6035,23 +5939,23 @@ with vertical scrolling instead of being scaled down to fit the viewport.</li>
 <li><strong>CI builds</strong>: Migrate all release build jobs from self-hosted to GitHub-hosted runners for full parallelism (<code>ubuntu-latest</code>, <code>ubuntu-latest-arm</code>, <code>macos-latest</code>), remove all cross-compilation toolchain steps</li>
 </ul>
 <h2 id="018---2026-02-06"><a class="header" href="#018---2026-02-06">[0.1.8] - 2026-02-06</a></h2>
-<h3 id="fixed-16"><a class="header" href="#fixed-16">Fixed</a></h3>
+<h3 id="fixed-19"><a class="header" href="#fixed-19">Fixed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Fix corrupted cargo config on all self-hosted runner jobs, fix macOS runner label, add llama-cpp build deps to Docker and Snap builds</li>
 </ul>
 <h2 id="017---2026-02-06"><a class="header" href="#017---2026-02-06">[0.1.7] - 2026-02-06</a></h2>
-<h3 id="fixed-17"><a class="header" href="#fixed-17">Fixed</a></h3>
+<h3 id="fixed-20"><a class="header" href="#fixed-20">Fixed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Use project-local <code>.cargo/config.toml</code> for cross-compilation instead of appending to global config (fixes duplicate key errors on self-hosted runners)</li>
 </ul>
 <h2 id="016---2026-02-06"><a class="header" href="#016---2026-02-06">[0.1.6] - 2026-02-06</a></h2>
-<h3 id="fixed-18"><a class="header" href="#fixed-18">Fixed</a></h3>
+<h3 id="fixed-21"><a class="header" href="#fixed-21">Fixed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Use macOS GitHub-hosted runners for apple-darwin binary builds instead of cross-compiling from Linux</li>
 <li><strong>CI performance</strong>: Run lightweight lint jobs (zizmor, biome, fmt) on GitHub-hosted runners to free up self-hosted runners</li>
 </ul>
 <h2 id="015---2026-02-06"><a class="header" href="#015---2026-02-06">[0.1.5] - 2026-02-06</a></h2>
-<h3 id="fixed-19"><a class="header" href="#fixed-19">Fixed</a></h3>
+<h3 id="fixed-22"><a class="header" href="#fixed-22">Fixed</a></h3>
 <ul>
 <li><strong>CI security</strong>: Use GitHub-hosted runners for PRs to prevent untrusted code from running on self-hosted infrastructure</li>
 <li><strong>CI security</strong>: Add <code>persist-credentials: false</code> to docs workflow checkout (fixes zizmor artipacked warning)</li>
@@ -6239,7 +6143,7 @@ registration.</p>
 <code>clone_without_prefix("mcp__")</code> in all three call sites.</p>
 </li>
 </ul>
-<h3 id="fixed-20"><a class="header" href="#fixed-20">Fixed</a></h3>
+<h3 id="fixed-23"><a class="header" href="#fixed-23">Fixed</a></h3>
 <ul>
 <li>Push notifications not sending when chat uses agent mode (run_with_tools)</li>
 <li>Missing space in Safari install instructions (“usingFile” → “using File”)</li>

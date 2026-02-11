@@ -239,22 +239,13 @@ voice = ["dep:moltis-voice"]
 </code></pre>
 <h2 id="text-to-speech-tts"><a class="header" href="#text-to-speech-tts">Text-to-Speech (TTS)</a></h2>
 <h3 id="supported-providers"><a class="header" href="#supported-providers">Supported Providers</a></h3>
-<p>Moltis supports 5 TTS providers: 3 cloud-based and 2 local.</p>
-<h4 id="cloud-providers"><a class="header" href="#cloud-providers">Cloud Providers</a></h4>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Model</th><th>Latency</th><th>Notes</th></tr></thead><tbody>
-<tr><td>ElevenLabs</td><td><code>eleven_flash_v2_5</code></td><td>~75ms</td><td>Lowest latency, voice cloning</td></tr>
-<tr><td>ElevenLabs</td><td><code>eleven_turbo_v2_5</code></td><td>~250ms</td><td>Higher quality</td></tr>
-<tr><td>OpenAI</td><td><code>tts-1</code></td><td>~200ms</td><td>Real-time optimized</td></tr>
-<tr><td>OpenAI</td><td><code>tts-1-hd</code></td><td>~400ms</td><td>Higher quality</td></tr>
-<tr><td>Google Cloud</td><td>Various</td><td>~150ms</td><td>380+ voices, 50+ languages</td></tr>
+<p>Moltis supports multiple TTS providers across cloud and local backends.</p>
+<div class="table-wrapper"><table><thead><tr><th>Category</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Cloud TTS providers</td><td>Hosted neural voices with low-latency streaming</td></tr>
+<tr><td>Local TTS providers</td><td>Offline/on-device synthesis for privacy-sensitive workflows</td></tr>
 </tbody></table>
 </div>
-<h4 id="local-providers"><a class="header" href="#local-providers">Local Providers</a></h4>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Binary/Server</th><th>Notes</th></tr></thead><tbody>
-<tr><td>Piper</td><td><code>piper</code> binary</td><td>Fast neural TTS, many voices, runs offline</td></tr>
-<tr><td>Coqui TTS</td><td>TTS server</td><td>High-quality neural TTS with voice cloning</td></tr>
-</tbody></table>
-</div>
+<p><em>More voice providers are coming soon.</em></p>
 <h3 id="configuration"><a class="header" href="#configuration">Configuration</a></h3>
 <p>Set API keys via environment variables:</p>
 <pre><code class="language-bash">export ELEVENLABS_API_KEY=your-key-here
@@ -432,27 +423,17 @@ endpoint = "http://localhost:5002"
 </div>
 <h2 id="speech-to-text-stt"><a class="header" href="#speech-to-text-stt">Speech-to-Text (STT)</a></h2>
 <h3 id="supported-providers-1"><a class="header" href="#supported-providers-1">Supported Providers</a></h3>
-<p>Moltis supports 8 STT providers: 5 cloud-based and 3 local.</p>
-<h4 id="cloud-providers-1"><a class="header" href="#cloud-providers-1">Cloud Providers</a></h4>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Model</th><th>Notes</th></tr></thead><tbody>
-<tr><td>OpenAI Whisper</td><td><code>whisper-1</code></td><td>Best accuracy, handles accents, noise, technical terms</td></tr>
-<tr><td>Groq</td><td><code>whisper-large-v3-turbo</code></td><td>Ultra-fast Whisper inference on Groq hardware</td></tr>
-<tr><td>Deepgram</td><td><code>nova-3</code></td><td>Fast and accurate with smart formatting</td></tr>
-<tr><td>Google Cloud</td><td>Various</td><td>Supports 125+ languages</td></tr>
-<tr><td>Mistral AI</td><td><code>voxtral-mini-latest</code></td><td>Fast Voxtral transcription with 13 languages</td></tr>
+<p>Moltis supports multiple STT providers across cloud and local backends.</p>
+<div class="table-wrapper"><table><thead><tr><th>Category</th><th>Notes</th></tr></thead><tbody>
+<tr><td>Cloud STT providers</td><td>Managed transcription APIs with language/model options</td></tr>
+<tr><td>Local STT providers</td><td>Offline transcription through local binaries or services</td></tr>
 </tbody></table>
 </div>
-<h4 id="local-providers-1"><a class="header" href="#local-providers-1">Local Providers</a></h4>
-<div class="table-wrapper"><table><thead><tr><th>Provider</th><th>Binary/Server</th><th>Notes</th></tr></thead><tbody>
-<tr><td>Voxtral (Local)</td><td>vLLM server</td><td>Run Voxtral locally via vLLM with OpenAI-compatible API</td></tr>
-<tr><td>whisper.cpp</td><td><code>whisper-cli</code></td><td>Local Whisper inference via C++ port</td></tr>
-<tr><td>sherpa-onnx</td><td><code>sherpa-onnx-offline</code></td><td>Local offline STT via ONNX runtime</td></tr>
-</tbody></table>
-</div>
+<p><em>More voice providers are coming soon.</em></p>
 <h3 id="configuration-1"><a class="header" href="#configuration-1">Configuration</a></h3>
 <pre><code class="language-toml">[voice.stt]
 enabled = true
-provider = "whisper"  # or "groq", "deepgram", "google", "mistral", "whisper-cli", "sherpa-onnx"
+provider = "whisper"  # set to any configured STT provider id
 providers = []        # Optional UI allowlist, empty = show all STT providers
 
 # Cloud providers - API key required

@@ -199,25 +199,26 @@
 🌐 Open http://localhost:13131 in your browser
 </code></pre>
 <h2 id="3-configure-a-provider"><a class="header" href="#3-configure-a-provider">3. Configure a Provider</a></h2>
-<p>You need an LLM API key to chat. The easiest options:</p>
-<h3 id="option-a-anthropic-recommended"><a class="header" href="#option-a-anthropic-recommended">Option A: Anthropic (Recommended)</a></h3>
+<p>You need an LLM provider configured to chat. Current options are:</p>
+<h3 id="option-a-openai-codex-oauth"><a class="header" href="#option-a-openai-codex-oauth">Option A: OpenAI Codex (OAuth)</a></h3>
 <ol>
-<li>Get an API key from <a href="https://console.anthropic.com">console.anthropic.com</a></li>
 <li>In Moltis, go to <strong>Settings</strong> → <strong>Providers</strong></li>
-<li>Click <strong>Anthropic</strong> → Enter your API key → <strong>Save</strong></li>
+<li>Click <strong>OpenAI Codex</strong> → <strong>Connect</strong></li>
+<li>Complete the OAuth flow</li>
 </ol>
-<h3 id="option-b-openai"><a class="header" href="#option-b-openai">Option B: OpenAI</a></h3>
+<h3 id="option-b-github-copilot-oauth"><a class="header" href="#option-b-github-copilot-oauth">Option B: GitHub Copilot (OAuth)</a></h3>
 <ol>
-<li>Get an API key from <a href="https://platform.openai.com">platform.openai.com</a></li>
 <li>In Moltis, go to <strong>Settings</strong> → <strong>Providers</strong></li>
-<li>Click <strong>OpenAI</strong> → Enter your API key → <strong>Save</strong></li>
+<li>Click <strong>GitHub Copilot</strong> → <strong>Connect</strong></li>
+<li>Complete the GitHub OAuth flow</li>
 </ol>
-<h3 id="option-c-local-model-free"><a class="header" href="#option-c-local-model-free">Option C: Local Model (Free)</a></h3>
+<h3 id="option-c-local-llm-offline"><a class="header" href="#option-c-local-llm-offline">Option C: Local LLM (Offline)</a></h3>
 <ol>
-<li>Install <a href="https://ollama.ai">Ollama</a>: <code>curl -fsSL https://ollama.ai/install.sh | sh</code></li>
-<li>Pull a model: <code>ollama pull llama3.2</code></li>
-<li>In Moltis, configure Ollama in <strong>Settings</strong> → <strong>Providers</strong></li>
+<li>In Moltis, go to <strong>Settings</strong> → <strong>Providers</strong></li>
+<li>Click <strong>Local LLM</strong></li>
+<li>Choose a model and save</li>
 </ol>
+<p><em>More providers are coming soon.</em></p>
 <h2 id="4-chat"><a class="header" href="#4-chat">4. Chat!</a></h2>
 <p>Go to the <strong>Chat</strong> tab and start a conversation:</p>
 <pre><code>You: Write a Python function to check if a number is prime

@@ -188,6 +188,29 @@
 <p>The format is based on <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>,
 and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
 <h2 id="unreleased"><a class="header" href="#unreleased">[Unreleased]</a></h2>
+<h2 id="083---2026-02-11"><a class="header" href="#083---2026-02-11">[0.8.3] - 2026-02-11</a></h2>
+<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<ul>
+<li><strong>Linux clippy <code>unused_mut</code> failure</strong>: Fixed a target-specific <code>unused_mut</code>
+warning in browser stale-container cleanup that failed release clippy on
+Linux with <code>-D warnings</code>.</li>
+</ul>
+<h2 id="082---2026-02-11"><a class="header" href="#082---2026-02-11">[0.8.2] - 2026-02-11</a></h2>
+<h3 id="fixed-1"><a class="header" href="#fixed-1">Fixed</a></h3>
+<ul>
+<li><strong>Release clippy environment parity</strong>: The release workflow clippy job now
+runs in the same CUDA-capable environment as main CI, includes the llama
+source git bootstrap step, and installs <code>rustfmt</code> alongside <code>clippy</code>. This
+fixes release clippy failures caused by missing CUDA toolchain/runtime.</li>
+</ul>
+<h2 id="081---2026-02-11"><a class="header" href="#081---2026-02-11">[0.8.1] - 2026-02-11</a></h2>
+<h3 id="fixed-2"><a class="header" href="#fixed-2">Fixed</a></h3>
+<ul>
+<li><strong>Clippy validation parity</strong>: Unified local validation, CI (main), and
+release workflows to use the same clippy command and flags
+(<code>--workspace --all-features --all-targets --timings -D warnings</code>), which
+prevents release-only clippy failures from command drift.</li>
+</ul>
 <h2 id="080---2026-02-11"><a class="header" href="#080---2026-02-11">[0.8.0] - 2026-02-11</a></h2>
 <h3 id="added"><a class="header" href="#added">Added</a></h3>
 <ul>
@@ -204,7 +227,7 @@ unrelated containers.</li>
 the modern Apple container CLI flow (<code>container image pull --help</code>) without
 legacy fallback behavior.</li>
 </ul>
-<h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<h3 id="fixed-3"><a class="header" href="#fixed-3">Fixed</a></h3>
 <ul>
 <li><strong>Release workflow artifacts</strong>: Disabled docker build record artifact uploads
 in release CI to avoid release workflow failures from missing artifact paths.</li>
@@ -212,7 +235,7 @@ in release CI to avoid release workflow failures from missing artifact paths.</l
 release preflight checks with CI formatting/lint gates.</li>
 </ul>
 <h2 id="071---2026-02-11"><a class="header" href="#071---2026-02-11">[0.7.1] - 2026-02-11</a></h2>
-<h3 id="fixed-1"><a class="header" href="#fixed-1">Fixed</a></h3>
+<h3 id="fixed-4"><a class="header" href="#fixed-4">Fixed</a></h3>
 <ul>
 <li><strong>Release format gate</strong>: Included missing Rust formatting updates in release
 history so the release workflow <code>cargo fmt --all -- --check</code> passes for
@@ -243,7 +266,7 @@ static while the retry countdown is shown only on the button.</li>
 <code>docs/src/authentication.md</code>, and <code>docs/src/security.md</code>.</li>
 </ul>
 <h2 id="061---2026-02-10"><a class="header" href="#061---2026-02-10">[0.6.1] - 2026-02-10</a></h2>
-<h3 id="fixed-2"><a class="header" href="#fixed-2">Fixed</a></h3>
+<h3 id="fixed-5"><a class="header" href="#fixed-5">Fixed</a></h3>
 <ul>
 <li><strong>Release clippy</strong>: Aligned release workflow clippy command with nightly
 flags (<code>-Z unstable-options</code>, <code>--timings</code>).</li>
@@ -265,7 +288,7 @@ event names in the config file.</li>
 decision matrix, credential types, API key scopes, session endpoints,
 and WebSocket auth documentation.</li>
 </ul>
-<h3 id="fixed-3"><a class="header" href="#fixed-3">Fixed</a></h3>
+<h3 id="fixed-6"><a class="header" href="#fixed-6">Fixed</a></h3>
 <ul>
 <li><strong>Browser container lifecycle</strong>: Browser containers (browserless/chrome)
 now have proper lifecycle management — periodic cleanup removes idle
@@ -321,7 +344,7 @@ access instead of silently receiving full admin privileges. Keys must specify
 at least one scope explicitly (least-privilege by default).</li>
 </ul>
 <h2 id="041---2026-02-09"><a class="header" href="#041---2026-02-09">[0.4.1] - 2026-02-09</a></h2>
-<h3 id="fixed-4"><a class="header" href="#fixed-4">Fixed</a></h3>
+<h3 id="fixed-7"><a class="header" href="#fixed-7">Fixed</a></h3>
 <ul>
 <li><strong>Clippy lint in map test</strong>: Replace <code>is_some()</code>/<code>unwrap()</code> with <code>if let Some</code> to
 fix <code>clippy::unnecessary_unwrap</code> that broke the v0.4.0 release build.</li>
@@ -370,7 +393,7 @@ same validate-first flow as onboarding. Credentials are validated before
 saving (bad keys are never persisted), a model selector appears after
 validation, and OAuth flows show model selection after authentication.</li>
 </ul>
-<h3 id="fixed-5"><a class="header" href="#fixed-5">Fixed</a></h3>
+<h3 id="fixed-8"><a class="header" href="#fixed-8">Fixed</a></h3>
 <ul>
 <li><strong>Docker RAM detection</strong>: Fall back to <code>/proc/meminfo</code> when <code>sysinfo</code> returns
 0 bytes for memory inside Docker/cgroup environments.</li>
@@ -393,34 +416,34 @@ skip when no usable container runtime is available (backend = “none”).</li>
 <li><strong>Release CI parallelization</strong>: Split clippy and test into separate parallel
 jobs in the release workflow for faster feedback on GitHub-hosted runners.</li>
 </ul>
-<h3 id="fixed-6"><a class="header" href="#fixed-6">Fixed</a></h3>
+<h3 id="fixed-9"><a class="header" href="#fixed-9">Fixed</a></h3>
 <ul>
 <li><strong>CodSpeed workflow zizmor audit</strong>: Pinned <code>CodSpeedHQ/action@v4</code> to commit
 SHA to satisfy zizmor’s <code>unpinned-uses</code> audit.</li>
 </ul>
 <h2 id="037---2026-02-09"><a class="header" href="#037---2026-02-09">[0.3.7] - 2026-02-09</a></h2>
-<h3 id="fixed-7"><a class="header" href="#fixed-7">Fixed</a></h3>
+<h3 id="fixed-10"><a class="header" href="#fixed-10">Fixed</a></h3>
 <ul>
 <li><strong>Clippy warnings</strong>: Fixed <code>MutexGuard</code> held across await in telegram
 test, <code>field assignment outside initializer</code> in provider setup test, and
 <code>items after test module</code> in gateway services.</li>
 </ul>
 <h2 id="036---2026-02-09"><a class="header" href="#036---2026-02-09">[0.3.6] - 2026-02-09</a></h2>
-<h3 id="fixed-8"><a class="header" href="#fixed-8">Fixed</a></h3>
+<h3 id="fixed-11"><a class="header" href="#fixed-11">Fixed</a></h3>
 <ul>
 <li><strong>Release CI zizmor audit</strong>: Removed <code>rust-cache</code> from the release workflow’s
 clippy-test job entirely instead of using <code>save-if: false</code>, which zizmor does
 not recognize as a cache-poisoning mitigation.</li>
 </ul>
 <h2 id="035---2026-02-09"><a class="header" href="#035---2026-02-09">[0.3.5] - 2026-02-09</a></h2>
-<h3 id="fixed-9"><a class="header" href="#fixed-9">Fixed</a></h3>
+<h3 id="fixed-12"><a class="header" href="#fixed-12">Fixed</a></h3>
 <ul>
 <li><strong>Release CI cache-poisoning</strong>: Set <code>save-if: false</code> on <code>rust-cache</code> in the
 release workflow to satisfy zizmor’s cache-poisoning audit for tag-triggered
 workflows that publish artifacts.</li>
 </ul>
 <h2 id="034---2026-02-09"><a class="header" href="#034---2026-02-09">[0.3.4] - 2026-02-09</a></h2>
-<h3 id="fixed-10"><a class="header" href="#fixed-10">Fixed</a></h3>
+<h3 id="fixed-13"><a class="header" href="#fixed-13">Fixed</a></h3>
 <ul>
 <li><strong>Session file lock contention</strong>: Replaced non-blocking <code>try_write()</code> with
 blocking <code>write()</code> in <code>SessionStore::append()</code> and <code>replace_history()</code> so
@@ -434,7 +457,7 @@ format, clippy, and test checks before building any packages, ensuring code
 correctness before artifacts are produced.</li>
 </ul>
 <h2 id="033---2026-02-09"><a class="header" href="#033---2026-02-09">[0.3.3] - 2026-02-09</a></h2>
-<h3 id="fixed-11"><a class="header" href="#fixed-11">Fixed</a></h3>
+<h3 id="fixed-14"><a class="header" href="#fixed-14">Fixed</a></h3>
 <ul>
 <li><strong>OpenAI Codex token refresh panic</strong>: Made <code>get_valid_token()</code> async to fix
 <code>block_on</code> inside async runtime panic when refreshing expired OAuth tokens.</li>
@@ -561,7 +584,7 @@ cache-miss token counters in the metrics subsystem.</p>
 <li><strong>Configurable model ordering</strong>: Added <code>chat.priority_models</code> in <code>moltis.toml</code> to pin preferred models at the top of model selectors without rebuilding. Runtime model selectors (<code>models.list</code>, chat model dropdown, Telegram <code>/model</code>) hide unsupported models, while Providers diagnostics continue to show full catalog entries (including unsupported flags).</li>
 <li><strong>Configurable provider offerings in UI</strong>: Added <code>[providers] offered = [...]</code> allowlist in <code>moltis.toml</code> to control which providers are shown in onboarding/provider-picker UI. New config templates default this to <code>["openai", "github-copilot"]</code>; setting <code>offered = []</code> shows all known providers. Configured providers remain visible for management.</li>
 </ul>
-<h3 id="fixed-12"><a class="header" href="#fixed-12">Fixed</a></h3>
+<h3 id="fixed-15"><a class="header" href="#fixed-15">Fixed</a></h3>
 <ul>
 <li>
 <p><strong>Web search DuckDuckGo fallback</strong>: When no search API key (Brave or
@@ -642,7 +665,7 @@ personality bootstrapping.</li>
 <ul>
 <li><strong>Reply medium preference handling</strong>: Chat now prefers the same reply medium when possible and falls back to text when a medium cannot be preserved.</li>
 </ul>
-<h3 id="fixed-13"><a class="header" href="#fixed-13">Fixed</a></h3>
+<h3 id="fixed-16"><a class="header" href="#fixed-16">Fixed</a></h3>
 <ul>
 <li><strong>Chat UI reply badge visibility</strong>: Assistant footer now reliably shows the selected reply medium badge.</li>
 <li><strong>Voice UX polish</strong>: Improved microphone timing behavior and preserved settings scroll state in voice configuration views.</li>
@@ -661,7 +684,7 @@ plugins manifest and directory into the new unified location.</li>
 <code>[voice]</code> section with provider-list allowlists limited to ElevenLabs for TTS and
 Mistral + ElevenLabs for STT.</li>
 </ul>
-<h3 id="fixed-14"><a class="header" href="#fixed-14">Fixed</a></h3>
+<h3 id="fixed-17"><a class="header" href="#fixed-17">Fixed</a></h3>
 <ul>
 <li><strong>Update checker repository configuration</strong>: The update checker now reads
 <code>server.update_repository_url</code> from <code>moltis.toml</code>, defaults new configs to
@@ -829,7 +852,7 @@ Empty lists keep current behavior and show all providers.</p>
 <li><strong>Skill trust lifecycle</strong>: Installed marketplace skills/plugins now track a <code>trusted</code> state and must be trusted before they can be enabled; the skills UI now surfaces untrusted status and supports trust-before-enable.</li>
 <li><strong>Git metadata via gitoxide</strong>: Gateway now resolves branch names, repo HEAD SHAs, and commit timestamps using <code>gix</code> (gitoxide) instead of shelling out to <code>git</code> for those read-only operations.</li>
 </ul>
-<h3 id="fixed-15"><a class="header" href="#fixed-15">Fixed</a></h3>
+<h3 id="fixed-18"><a class="header" href="#fixed-18">Fixed</a></h3>
 <ul>
 <li><strong>OAuth callback on hosted deployments</strong>: OpenAI Codex OAuth now uses the web app origin callback (<code>/auth/callback</code>) in the UI flow instead of hardcoded localhost loopback, allowing DigitalOcean/Fly/Render deployments to complete OAuth successfully.</li>
 <li><strong>Sandbox startup on hosted Docker environments</strong>: Skip sandbox image pre-build when sandbox mode is off, and require Docker daemon accessibility (not just Docker CLI presence) before selecting the Docker sandbox backend.</li>
@@ -884,23 +907,23 @@ with vertical scrolling instead of being scaled down to fit the viewport.</li>
 <li><strong>CI builds</strong>: Migrate all release build jobs from self-hosted to GitHub-hosted runners for full parallelism (<code>ubuntu-latest</code>, <code>ubuntu-latest-arm</code>, <code>macos-latest</code>), remove all cross-compilation toolchain steps</li>
 </ul>
 <h2 id="018---2026-02-06"><a class="header" href="#018---2026-02-06">[0.1.8] - 2026-02-06</a></h2>
-<h3 id="fixed-16"><a class="header" href="#fixed-16">Fixed</a></h3>
+<h3 id="fixed-19"><a class="header" href="#fixed-19">Fixed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Fix corrupted cargo config on all self-hosted runner jobs, fix macOS runner label, add llama-cpp build deps to Docker and Snap builds</li>
 </ul>
 <h2 id="017---2026-02-06"><a class="header" href="#017---2026-02-06">[0.1.7] - 2026-02-06</a></h2>
-<h3 id="fixed-17"><a class="header" href="#fixed-17">Fixed</a></h3>
+<h3 id="fixed-20"><a class="header" href="#fixed-20">Fixed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Use project-local <code>.cargo/config.toml</code> for cross-compilation instead of appending to global config (fixes duplicate key errors on self-hosted runners)</li>
 </ul>
 <h2 id="016---2026-02-06"><a class="header" href="#016---2026-02-06">[0.1.6] - 2026-02-06</a></h2>
-<h3 id="fixed-18"><a class="header" href="#fixed-18">Fixed</a></h3>
+<h3 id="fixed-21"><a class="header" href="#fixed-21">Fixed</a></h3>
 <ul>
 <li><strong>CI builds</strong>: Use macOS GitHub-hosted runners for apple-darwin binary builds instead of cross-compiling from Linux</li>
 <li><strong>CI performance</strong>: Run lightweight lint jobs (zizmor, biome, fmt) on GitHub-hosted runners to free up self-hosted runners</li>
 </ul>
 <h2 id="015---2026-02-06"><a class="header" href="#015---2026-02-06">[0.1.5] - 2026-02-06</a></h2>
-<h3 id="fixed-19"><a class="header" href="#fixed-19">Fixed</a></h3>
+<h3 id="fixed-22"><a class="header" href="#fixed-22">Fixed</a></h3>
 <ul>
 <li><strong>CI security</strong>: Use GitHub-hosted runners for PRs to prevent untrusted code from running on self-hosted infrastructure</li>
 <li><strong>CI security</strong>: Add <code>persist-credentials: false</code> to docs workflow checkout (fixes zizmor artipacked warning)</li>
@@ -1088,7 +1111,7 @@ registration.</p>
 <code>clone_without_prefix("mcp__")</code> in all three call sites.</p>
 </li>
 </ul>
-<h3 id="fixed-20"><a class="header" href="#fixed-20">Fixed</a></h3>
+<h3 id="fixed-23"><a class="header" href="#fixed-23">Fixed</a></h3>
 <ul>
 <li>Push notifications not sending when chat uses agent mode (run_with_tools)</li>
 <li>Missing space in Safari install instructions (“usingFile” → “using File”)</li>
