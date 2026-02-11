@@ -5,6 +5,7 @@ set -euo pipefail
 ACTIVE_PIDS=()
 CURRENT_PID=""
 RUN_CHECK_ASYNC_PID=""
+STATUS_PUBLISH_ENABLED=1
 
 remove_active_pid() {
   local target="$1"
@@ -241,6 +242,10 @@ set_status() {
     return 0
   fi
 
+  if [[ "$STATUS_PUBLISH_ENABLED" -eq 0 ]]; then
+    return 0
+  fi
+
   if ! gh api "repos/$REPO/statuses/$SHA" \
     -f state="$state" \
     -f context="$context" \
@@ -258,7 +263,9 @@ If this is an org with SSO enforcement, authorize the token for the org.
 If GH_TOKEN is set in your shell, try unsetting it to use your gh auth token:
   unset GH_TOKEN
 EOF
-    return 1
+    STATUS_PUBLISH_ENABLED=0
+    echo "Disabling further status publication for this run; continuing local checks." >&2
+    return 0
   fi
 }
 
