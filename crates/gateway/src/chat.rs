@@ -4162,6 +4162,7 @@ async fn run_streaming(
                     .record(duration);
                 }
 
+                let accumulated = moltis_agents::response_sanitizer::clean_response(&accumulated);
                 let is_silent = accumulated.trim().is_empty();
 
                 info!(
