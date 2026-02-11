@@ -63,6 +63,60 @@ test.describe("Authentication", () => {
 		await expect(banner).toBeHidden();
 	});
 
+	test("localhost bypass hides logout and explains sign-out behavior", async ({ page }) => {
+		const pageErrors = watchPageErrors(page);
+		await page.addInitScript(() => {
+			const origFetch = window.fetch;
+			window.fetch = function (...args) {
+				var url = typeof args[0] === "string" ? args[0] : args[0].url;
+				if (url.endsWith("/api/auth/status")) {
+					return Promise.resolve(
+						new Response(
+							JSON.stringify({
+								authenticated: true,
+								setup_required: false,
+								auth_disabled: false,
+								localhost_only: true,
+								has_password: false,
+								has_passkeys: false,
+								setup_complete: false,
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						),
+					);
+				}
+				if (url.endsWith("/api/auth/passkeys")) {
+					return Promise.resolve(
+						new Response(JSON.stringify({ passkeys: [] }), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+					);
+				}
+				if (url.endsWith("/api/auth/api-keys")) {
+					return Promise.resolve(
+						new Response(JSON.stringify({ api_keys: [] }), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+					);
+				}
+				return origFetch.apply(this, args);
+			};
+		});
+
+		await page.goto("/settings/security");
+		await expectPageContentMounted(page);
+		await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+		await expect(page.locator("#logoutBtn")).toBeHidden();
+		await expect(page.getByText("Localhost bypass is active.", { exact: false })).toBeVisible();
+		await expect(page.getByText("Sign out has no effect.", { exact: false })).toBeVisible();
+		expect(pageErrors).toEqual([]);
+	});
+
 	test("setup page is accessible", async ({ page }) => {
 		const pageErrors = watchPageErrors(page);
 		await page.goto("/setup");
@@ -109,13 +163,224 @@ test.describe("Authentication", () => {
 		expect(pageErrors).toEqual([]);
 	});
 
-	test("page title uses configured identity name", async ({ page }) => {
+	test("reset-auth localhost state keeps classic security controls", async ({ page }) => {
+		const pageErrors = watchPageErrors(page);
+		await page.addInitScript(() => {
+			const origFetch = window.fetch;
+			window.fetch = function (...args) {
+				var url = typeof args[0] === "string" ? args[0] : args[0].url;
+				if (url.endsWith("/api/auth/status")) {
+					return Promise.resolve(
+						new Response(
+							JSON.stringify({
+								authenticated: true,
+								setup_required: false,
+								auth_disabled: true,
+								localhost_only: true,
+								has_password: false,
+								has_passkeys: false,
+								setup_complete: false,
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						),
+					);
+				}
+				if (url.endsWith("/api/auth/passkeys")) {
+					return Promise.resolve(
+						new Response(JSON.stringify({ passkeys: [] }), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+					);
+				}
+				if (url.endsWith("/api/auth/api-keys")) {
+					return Promise.resolve(
+						new Response(JSON.stringify({ api_keys: [] }), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+					);
+				}
+				return origFetch.apply(this, args);
+			};
+		});
+
+		await page.goto("/settings/security");
+		await expectPageContentMounted(page);
+		await expect(page).toHaveURL(/\/settings\/security$/);
+		await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+		await expect(
+			page.getByText("Localhost-only access is safe, but localhost bypass is active.", { exact: false }),
+		).toBeVisible();
+		await expect(page.getByText("Sign out has no effect.", { exact: false })).toBeVisible();
+		await expect(page.locator(".alert-info-text")).toHaveCount(0);
+		await expect(page.getByRole("heading", { name: "Set Password" })).toBeVisible();
+		await expect(page.getByRole("heading", { name: "Passkeys" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Set up authentication" })).toHaveCount(0);
+		expect(pageErrors).toEqual([]);
+	});
+
+	test("setting password after reset reloads and routes to login", async ({ page }) => {
+		const pageErrors = watchPageErrors(page);
+		await page.addInitScript(() => {
+			if (localStorage.getItem("__e2eCredentialSet") === null) {
+				localStorage.setItem("__e2eCredentialSet", "0");
+			}
+
+			const origFetch = window.fetch;
+			window.fetch = function (...args) {
+				var url = typeof args[0] === "string" ? args[0] : args[0].url;
+				var credentialSet = localStorage.getItem("__e2eCredentialSet") === "1";
+
+				if (url.endsWith("/api/auth/status")) {
+					var status = credentialSet
+						? {
+								authenticated: false,
+								setup_required: false,
+								auth_disabled: false,
+								localhost_only: true,
+								has_password: true,
+								has_passkeys: false,
+								setup_complete: true,
+								webauthn_available: true,
+								passkey_origins: ["http://localhost"],
+							}
+						: {
+								authenticated: true,
+								setup_required: false,
+								auth_disabled: true,
+								localhost_only: true,
+								has_password: false,
+								has_passkeys: false,
+								setup_complete: false,
+								webauthn_available: true,
+								passkey_origins: ["http://localhost"],
+							};
+					return Promise.resolve(
+						new Response(JSON.stringify(status), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+					);
+				}
+
+				if (url.endsWith("/api/auth/password/change")) {
+					localStorage.setItem("__e2eCredentialSet", "1");
+					return Promise.resolve(
+						new Response(JSON.stringify({ ok: true }), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+					);
+				}
+
+				if (url.endsWith("/api/auth/passkeys")) {
+					return Promise.resolve(
+						new Response(JSON.stringify({ passkeys: [] }), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+					);
+				}
+
+				if (url.endsWith("/api/auth/api-keys")) {
+					return Promise.resolve(
+						new Response(JSON.stringify({ api_keys: [] }), {
+							status: 200,
+							headers: { "Content-Type": "application/json" },
+						}),
+					);
+				}
+
+				return origFetch.apply(this, args);
+			};
+		});
+
+		await page.goto("/settings/security");
+		await expectPageContentMounted(page);
+		await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+		var passwordForm = page.locator("form").first();
+		var passwordInputs = passwordForm.locator("input[type='password']");
+		await passwordInputs.first().fill("testpass123");
+		await passwordInputs.nth(1).fill("testpass123");
+		await passwordForm.getByRole("button", { name: "Set password" }).click();
+		await expect.poll(() => new URL(page.url()).pathname).toBe("/login");
+		expect(pageErrors).toEqual([]);
+	});
+
+	test("logout button updates after runtime auth status change", async ({ page }) => {
+		const pageErrors = watchPageErrors(page);
+		await page.addInitScript(() => {
+			const origFetch = window.fetch;
+			window.__e2eAuthStatus = { hasPasskeyCredential: false };
+
+			window.fetch = function (...args) {
+				var url = typeof args[0] === "string" ? args[0] : args[0].url;
+				if (url.endsWith("/api/auth/status")) {
+					return Promise.resolve(
+						new Response(
+							JSON.stringify({
+								authenticated: true,
+								setup_required: false,
+								auth_disabled: false,
+								localhost_only: true,
+								has_password: false,
+								has_passkeys: !!window.__e2eAuthStatus.hasPasskeyCredential,
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						),
+					);
+				}
+				return origFetch.apply(this, args);
+			};
+		});
+
+		await page.goto("/");
+		await expectPageContentMounted(page);
+
+		const logoutBtn = page.locator("#logoutBtn");
+		await expect(logoutBtn).toBeHidden();
+
+		await page.evaluate(() => {
+			window.__e2eAuthStatus.hasPasskeyCredential = true;
+			window.dispatchEvent(new CustomEvent("moltis:auth-status-changed"));
+		});
+
+		await expect(logoutBtn).toBeVisible();
+		expect(pageErrors).toEqual([]);
+	});
+
+	test("page title omits identity emoji and favicon uses it", async ({ page }) => {
 		const pageErrors = watchPageErrors(page);
 		await page.goto("/");
 		await page.waitForLoadState("networkidle");
 
-		const expectedName = await page.evaluate(() => window.__MOLTIS__?.identity?.name || "moltis");
-		await expect.poll(() => page.title()).toContain(expectedName);
+		const expected = await page.evaluate(() => {
+			var id = window.__MOLTIS__?.identity;
+			var name = (id?.name ? String(id.name).trim() : "") || "moltis";
+			var emoji = (id?.emoji ? String(id.emoji) : "").trim();
+			return {
+				title: name,
+				branch: window.__MOLTIS__?.git_branch || "",
+				hasEmoji: !!emoji,
+				firstIconHref: document.querySelector('link[rel="icon"]')?.href || "",
+			};
+		});
+		var expectedTitle = expected.branch ? `[${expected.branch}] ${expected.title}` : expected.title;
+		await expect.poll(() => page.title()).toBe(expectedTitle);
+
+		if (expected.hasEmoji) {
+			expect(expected.firstIconHref.startsWith("data:image/svg+xml,")).toBeTruthy();
+		} else {
+			expect(expected.firstIconHref).toContain("/assets/");
+		}
+
 		expect(pageErrors).toEqual([]);
 	});
 });
@@ -190,15 +455,30 @@ test.describe("Login page", () => {
 		expect(pageErrors).toEqual([]);
 	});
 
-	test("login page title uses identity name from gon data", async ({ page }) => {
+	test("login page title omits emoji and favicon uses it from gon data", async ({ page }) => {
 		const pageErrors = watchPageErrors(page);
 		await mockAuthStatus(page);
 
 		await page.goto("/login");
 		await expect(page.locator(".auth-card")).toBeVisible();
 
-		const expectedName = await page.evaluate(() => window.__MOLTIS__?.identity?.name || "moltis");
-		await expect(page.locator(".auth-title")).toContainText(expectedName);
+		const expected = await page.evaluate(() => {
+			var id = window.__MOLTIS__?.identity;
+			var name = (id?.name ? String(id.name).trim() : "") || "moltis";
+			var emoji = (id?.emoji ? String(id.emoji) : "").trim();
+			return {
+				title: name,
+				hasEmoji: !!emoji,
+				firstIconHref: document.querySelector('link[rel="icon"]')?.href || "",
+			};
+		});
+		await expect.poll(() => page.title()).toBe(expected.title);
+		await expect(page.locator(".auth-title")).toContainText(expected.title);
+		if (expected.hasEmoji) {
+			expect(expected.firstIconHref.startsWith("data:image/svg+xml,")).toBeTruthy();
+		} else {
+			expect(expected.firstIconHref).toContain("/assets/");
+		}
 
 		expect(pageErrors).toEqual([]);
 	});

@@ -42,7 +42,7 @@ edition      = "2024"
 license      = "MIT"
 repository   = "https://github.com/moltis-org/moltis"
 rust-version = "1.91"
-version      = "0.8.6"
+version      = "0.8.8"
 
 [workspace.dependencies]
 # Async runtime
@@ -172,3 +172,7 @@ moltis-skills     = { path = "crates/skills" }
 moltis-telegram   = { path = "crates/telegram" }
 moltis-tools      = { path = "crates/tools" }
 moltis-voice      = { path = "crates/voice" }
+
+[profile.release]
+lto   = "thin"
+strip = true

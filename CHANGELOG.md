@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.8] - 2026-02-11
+
+### Changed
+
+- **Sessions sidebar layout**: Removed the top `Sessions` title row and moved
+  the new-session `+` action next to the session search field for a more
+  compact list header.
+- **Identity autosave UX**: Name fields in Settings > Identity now autosave on
+  input blur, matching the quick-save behavior used for emoji selection.
+- **Favicon behavior by browser**: Identity emoji changes now update favicon
+  live; Safari-specific reload guidance is shown only when Safari is detected.
+- **Page title format**: Browser title now uses the configured assistant name
+  only, without appending `AI assistant` suffix text.
+
+## [0.8.7] - 2026-02-11
+
+### Added
+
+- **Model allowlist probe output support**: Model allowlist matching now handles
+  provider probe output more robustly and applies stricter matching semantics.
+- **Ship helper command**: Added a `just ship` task and `scripts/ship-pr.sh`
+  helper to streamline commit, push, PR update, and local validation workflows.
+
+### Changed
+
+- **Gateway titles and labels**: Login/onboarding page titles now consistently
+  use configured values and identity emoji; UI copy now labels providers as
+  `LLM` where appropriate.
+- **Release binary profile**: Enabled ThinLTO and binary stripping in the
+  release profile to reduce artifact size.
+- **SPA route handling**: Centralized SPA route definitions and preserved TOML
+  comments during config updates.
+
+### Fixed
+
+- **Auth setup hardening**: Enforced authentication immediately after password
+  or passkey setup to prevent unintended post-setup unauthenticated access.
+- **Streaming event ordering**: Preserved gateway chat stream event ordering to
+  avoid out-of-order UI updates during streaming responses.
+- **Sandbox fallback pathing**: Exec fallback now uses the host data directory
+  when no container runtime is available.
+
 ## [0.8.6] - 2026-02-11
 
 ### Changed

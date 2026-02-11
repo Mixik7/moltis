@@ -129,11 +129,14 @@ impl moltis_tools::location::LocationRequester for GatewayLocationRequester {
         {
             let mut inner_w = self.state.inner.write().await;
             let invokes = &mut inner_w.pending_invokes;
-            invokes.insert(request_id.clone(), crate::state::PendingInvoke {
-                request_id: request_id.clone(),
-                sender: tx,
-                created_at: std::time::Instant::now(),
-            });
+            invokes.insert(
+                request_id.clone(),
+                crate::state::PendingInvoke {
+                    request_id: request_id.clone(),
+                    sender: tx,
+                    created_at: std::time::Instant::now(),
+                },
+            );
         }
 
         // Wait up to 30 seconds for the user to grant/deny permission.
@@ -247,13 +250,14 @@ impl moltis_tools::location::LocationRequester for GatewayLocationRequester {
         let (tx, rx) = tokio::sync::oneshot::channel();
         {
             let mut inner = self.state.inner.write().await;
-            inner
-                .pending_invokes
-                .insert(pending_key.clone(), crate::state::PendingInvoke {
+            inner.pending_invokes.insert(
+                pending_key.clone(),
+                crate::state::PendingInvoke {
                     request_id: pending_key.clone(),
                     sender: tx,
                     created_at: std::time::Instant::now(),
-                });
+                },
+            );
         }
 
         // Wait up to 60 seconds — user needs to navigate Telegram's UI.
@@ -969,6 +973,7 @@ pub async fn start_gateway(
         Arc::clone(&registry),
         config.providers.clone(),
         deploy_platform.clone(),
+        config.chat.allowed_models.clone(),
     ));
 
     // Wire live local-llm service when the feature is enabled.
@@ -1004,6 +1009,7 @@ pub async fn start_gateway(
             Arc::clone(&registry),
             Arc::clone(&model_store),
             config.chat.priority_models.clone(),
+            config.chat.allowed_models.clone(),
         ));
         services = services.with_model(Arc::clone(&svc) as Arc<dyn crate::services::ModelService>);
         Some(svc)
@@ -1025,16 +1031,17 @@ pub async fn start_gateway(
                     "sse" => moltis_mcp::registry::TransportType::Sse,
                     _ => moltis_mcp::registry::TransportType::Stdio,
                 };
-                merged
-                    .servers
-                    .insert(name.clone(), moltis_mcp::McpServerConfig {
+                merged.servers.insert(
+                    name.clone(),
+                    moltis_mcp::McpServerConfig {
                         command: entry.command.clone(),
                         args: entry.args.clone(),
                         env: entry.env.clone(),
                         enabled: entry.enabled,
                         transport,
                         url: entry.url.clone(),
-                    });
+                    },
+                );
             }
         }
         mcp_configured_count = merged.servers.values().filter(|s| s.enabled).count();
@@ -2867,10 +2874,15 @@ pub async fn start_gateway(
                         }
                     };
                     if changed && let Ok(payload) = serde_json::to_value(&next) {
-                        broadcast(&update_state, "update.available", payload, BroadcastOpts {
-                            drop_if_slow: true,
-                            ..Default::default()
-                        })
+                        broadcast(
+                            &update_state,
+                            "update.available",
+                            payload,
+                            BroadcastOpts {
+                                drop_if_slow: true,
+                                ..Default::default()
+                            },
+                        )
                         .await;
                     }
                 },
@@ -2933,12 +2945,15 @@ pub async fn start_gateway(
                         .by_provider
                         .iter()
                         .map(|(name, metrics)| {
-                            (name.clone(), moltis_metrics::ProviderTokens {
-                                input_tokens: metrics.input_tokens,
-                                output_tokens: metrics.output_tokens,
-                                completions: metrics.completions,
-                                errors: metrics.errors,
-                            })
+                            (
+                                name.clone(),
+                                moltis_metrics::ProviderTokens {
+                                    input_tokens: metrics.input_tokens,
+                                    output_tokens: metrics.output_tokens,
+                                    completions: metrics.completions,
+                                    errors: metrics.errors,
+                                },
+                            )
                         })
                         .collect();
 
@@ -4006,6 +4021,7 @@ struct LoginHtmlTemplate<'a> {
     build_ts: &'a str,
     asset_prefix: &'a str,
     nonce: &'a str,
+    page_title: &'a str,
     gon_json: &'a str,
 }
 
@@ -4016,6 +4032,7 @@ struct OnboardingHtmlTemplate<'a> {
     build_ts: &'a str,
     asset_prefix: &'a str,
     nonce: &'a str,
+    page_title: &'a str,
 }
 
 #[cfg(feature = "web-ui")]
@@ -4036,12 +4053,7 @@ fn script_safe_json<T: serde::Serialize>(value: &T) -> String {
 
 #[cfg(feature = "web-ui")]
 fn build_share_meta(identity: &moltis_config::ResolvedIdentity) -> ShareMeta {
-    let agent_name = identity.name.trim();
-    let agent_name = if agent_name.is_empty() {
-        "moltis"
-    } else {
-        agent_name
-    };
+    let agent_name = identity_name(identity);
     let user_name = identity
         .user_name
         .as_deref()
@@ -4067,6 +4079,16 @@ fn build_share_meta(identity: &moltis_config::ResolvedIdentity) -> ShareMeta {
         description,
         site_name: agent_name.to_owned(),
         image_alt,
+    }
+}
+
+#[cfg(feature = "web-ui")]
+fn identity_name(identity: &moltis_config::ResolvedIdentity) -> &str {
+    let name = identity.name.trim();
+    if name.is_empty() {
+        "moltis"
+    } else {
+        name
     }
 }
 
@@ -4120,10 +4142,12 @@ async fn render_spa_template(
         SpaTemplate::Login => {
             let gon = build_gon_data(gateway).await;
             let gon_json = script_safe_json(&gon);
+            let page_title = identity_name(&gon.identity).to_owned();
             let template = LoginHtmlTemplate {
                 build_ts: &build_ts,
                 asset_prefix: &asset_prefix,
                 nonce: &nonce,
+                page_title: &page_title,
                 gon_json: &gon_json,
             };
             match template.render() {
@@ -4135,10 +4159,20 @@ async fn render_spa_template(
             }
         },
         SpaTemplate::Onboarding => {
+            let identity = gateway
+                .services
+                .onboarding
+                .identity_get()
+                .await
+                .ok()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            let page_title = format!("{} onboarding", identity_name(&identity));
             let template = OnboardingHtmlTemplate {
                 build_ts: &build_ts,
                 asset_prefix: &asset_prefix,
                 nonce: &nonce,
+                page_title: &page_title,
             };
             match template.render() {
                 Ok(html) => html,
@@ -5674,11 +5708,19 @@ mod tests {
             build_ts: "dev",
             asset_prefix: "/assets/v/test/",
             nonce: "nonce-123",
+            page_title: "sparky onboarding",
         };
         let html = match template.render() {
             Ok(html) => html,
             Err(e) => panic!("failed to render onboarding template: {e}"),
         };
+        assert!(html.contains("<title>sparky onboarding</title>"));
+        assert!(html.contains(
+            "<link rel=\"icon\" type=\"image/png\" sizes=\"96x96\" href=\"/assets/v/test/icons/icon-96.png\">"
+        ));
+        assert!(html.contains(
+            "<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/assets/v/test/icons/icon-72.png\">"
+        ));
         assert!(html.contains("/assets/v/test/js/onboarding-app.js"));
         assert!(!html.contains("/assets/v/test/js/app.js"));
         assert!(!html.contains("/manifest.json"));
@@ -5728,6 +5770,21 @@ mod tests {
 
     #[cfg(feature = "web-ui")]
     #[test]
+    fn share_meta_omits_emoji_in_title() {
+        let identity = moltis_config::ResolvedIdentity {
+            name: "sparky".to_owned(),
+            emoji: Some("\u{1f525}".to_owned()),
+            user_name: Some("penso".to_owned()),
+            ..Default::default()
+        };
+
+        let meta = build_share_meta(&identity);
+        assert_eq!(meta.title, "sparky: penso AI assistant");
+        assert_eq!(meta.site_name, "sparky");
+    }
+
+    #[cfg(feature = "web-ui")]
+    #[test]
     fn askama_template_escapes_share_meta_values() {
         let template = IndexHtmlTemplate {
             build_ts: "dev",
@@ -5763,12 +5820,20 @@ mod tests {
             build_ts: "dev",
             asset_prefix: "/assets/v/test/",
             nonce: "nonce-abc",
+            page_title: "sparky",
             gon_json: "{\"identity\":{\"name\":\"moltis\"}}",
         };
         let html = match template.render() {
             Ok(html) => html,
             Err(e) => panic!("failed to render login template: {e}"),
         };
+        assert!(html.contains("<title>sparky</title>"));
+        assert!(html.contains(
+            "<link rel=\"icon\" type=\"image/png\" sizes=\"96x96\" href=\"/assets/v/test/icons/icon-96.png\">"
+        ));
+        assert!(html.contains(
+            "<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/assets/v/test/icons/icon-72.png\">"
+        ));
         assert!(html.contains("<script nonce=\"nonce-abc\">window.__MOLTIS__={\"identity\":{\"name\":\"moltis\"}};</script>"));
         assert!(html.contains(
             "<script nonce=\"nonce-abc\" type=\"module\" src=\"/assets/v/test/js/login-app.js\"></script>"
@@ -5984,6 +6049,27 @@ mod tests {
     }
 
     #[test]
+    fn not_local_when_xff_spoofs_loopback_value() {
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "localhost:18789".parse().unwrap());
+        // Header presence alone marks the request as proxied, even when value
+        // is spoofed to look loopback.
+        headers.insert("x-forwarded-for", "127.0.0.1".parse().unwrap());
+        assert!(!is_local_connection(&headers, addr, false));
+    }
+
+    #[test]
+    fn not_local_when_forwarded_spoofs_loopback_value() {
+        let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::HOST, "localhost:18789".parse().unwrap());
+        // RFC 7239 Forwarded header should never allow localhost bypass.
+        headers.insert("forwarded", "for=127.0.0.1;proto=https".parse().unwrap());
+        assert!(!is_local_connection(&headers, addr, false));
+    }
+
+    #[test]
     fn not_local_when_host_is_external() {
         let addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
         let mut headers = axum::http::HeaderMap::new();
@@ -6076,6 +6162,7 @@ mod tests {
             build_ts: "dev",
             asset_prefix: "/assets/v/test/",
             nonce,
+            page_title: "moltis onboarding",
         };
         let onboarding_html = match onboarding_template.render() {
             Ok(html) => html,

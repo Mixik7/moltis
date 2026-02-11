@@ -3,6 +3,7 @@
 import { html } from "htm/preact";
 import { render } from "preact";
 import prettyBytes from "pretty-bytes";
+import { applyIdentityFavicon, formatPageTitle } from "./branding.js";
 import { SessionList } from "./components/session-list.js";
 import { onEvent } from "./events.js";
 import * as gon from "./gon.js";
@@ -58,9 +59,6 @@ injectMarkdownStyles();
 initPWA();
 initMobile();
 
-// State for favicon/title restoration when switching branches.
-var originalFavicons = [];
-var originalTitle = document.title;
 var UPDATE_DISMISS_KEY = "moltis-update-dismissed-version";
 var currentUpdateVersion = null;
 
@@ -123,6 +121,42 @@ if (settingsBtn) {
 	});
 }
 
+function updateAuthChrome(auth) {
+	if (logoutBtn) {
+		var showLogout = !!(auth && auth.authenticated && !auth.auth_disabled && (auth.has_password || auth.has_passkeys));
+		logoutBtn.style.display = showLogout ? "" : "none";
+	}
+
+	var banner = document.getElementById("authDisabledBanner");
+	if (banner) {
+		var showAuthDisabled = !!(auth && auth.auth_disabled && !auth.localhost_only);
+		banner.style.display = showAuthDisabled ? "" : "none";
+	}
+}
+
+function refreshAuthChrome() {
+	return fetch("/api/auth/status")
+		.then((r) => (r.ok ? r.json() : null))
+		.then((auth) => {
+			updateAuthChrome(auth);
+			return auth;
+		})
+		.catch(() => null);
+}
+
+window.addEventListener("moltis:auth-status-changed", () => {
+	refreshAuthChrome().then((auth) => {
+		if (!auth) return;
+		if (auth.setup_required) {
+			window.location.assign("/onboarding");
+			return;
+		}
+		if (!auth.authenticated) {
+			window.location.assign("/login");
+		}
+	});
+});
+
 // Seed sandbox info from gon so the settings page can render immediately
 // without waiting for the auth-protected /api/bootstrap fetch.
 try {
@@ -151,32 +185,13 @@ fetch("/api/auth/status")
 			window.location.assign("/login");
 			return;
 		}
-		// Show logout button when user authenticated via real credentials
-		// (not bypassed via auth_disabled or localhost-no-password).
-		if (!auth.auth_disabled && (auth.has_password || auth.has_passkeys) && logoutBtn) {
-			logoutBtn.style.display = "";
-		}
-		if (auth.auth_disabled && !auth.localhost_only) {
-			showAuthDisabledBanner();
-		}
+		updateAuthChrome(auth);
 		startApp();
 	})
 	.catch(() => {
 		// If auth check fails, proceed anyway (backward compat).
 		startApp();
 	});
-
-function showAuthDisabledBanner() {
-	var el = document.getElementById("authDisabledBanner");
-	if (el) el.style.display = "";
-}
-
-function formatShareTitle(identity) {
-	var name = identity?.name || "moltis";
-	var userName = identity?.user_name ? String(identity.user_name).trim() : "";
-	if (userName) return `${name}: ${userName} AI assistant`;
-	return `${name}: AI assistant`;
-}
 
 function showUpdateBanner(update) {
 	var el = document.getElementById("updateBanner");
@@ -218,38 +233,17 @@ function showBranchBanner(branch) {
 	var el = document.getElementById("branchBanner");
 	if (!el) return;
 
-	// Capture original favicon hrefs on first call
-	if (originalFavicons.length === 0) {
-		document.querySelectorAll('link[rel="icon"]').forEach((link) => {
-			originalFavicons.push({ el: link, href: link.href, type: link.type, sizes: link.sizes?.value });
-		});
-	}
-
 	if (branch) {
 		document.getElementById("branchName").textContent = branch;
 		el.style.display = "";
 
-		// Swap favicon to high-contrast branch SVG variant
-		document.querySelectorAll('link[rel="icon"]').forEach((link) => {
-			link.type = "image/svg+xml";
-			link.removeAttribute("sizes");
-			link.href = "/assets/icons/icon-branch.svg";
-		});
-
 		// Prefix page title with branch name.
-		document.title = `[${branch}] ${formatShareTitle(gon.get("identity"))}`;
+		document.title = `[${branch}] ${formatPageTitle(gon.get("identity"))}`;
 	} else {
 		el.style.display = "none";
 
-		// Restore original favicons
-		originalFavicons.forEach((o) => {
-			o.el.type = o.type;
-			if (o.sizes) o.el.sizes = o.sizes;
-			o.el.href = o.href;
-		});
-
 		// Restore original title
-		document.title = originalTitle;
+		document.title = formatPageTitle(gon.get("identity"));
 	}
 }
 
@@ -258,10 +252,11 @@ function applyIdentity(identity) {
 	var nameEl = document.getElementById("titleName");
 	if (emojiEl) emojiEl.textContent = identity?.emoji ? `${identity.emoji} ` : "";
 	if (nameEl) nameEl.textContent = identity?.name || "moltis";
+	applyIdentityFavicon(identity);
+	var branch = gon.get("git_branch");
 
 	// Keep page title in sync with identity and branch.
-	var title = formatShareTitle(identity);
-	var branch = gon.get("git_branch");
+	var title = formatPageTitle(identity);
 	if (branch) {
 		document.title = `[${branch}] ${title}`;
 	} else {

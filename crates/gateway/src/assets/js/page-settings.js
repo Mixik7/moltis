@@ -39,6 +39,15 @@ function rerender() {
 	if (containerRef) render(html`<${SettingsPage} />`, containerRef);
 }
 
+function isSafariBrowser() {
+	if (typeof navigator === "undefined") return false;
+	var ua = navigator.userAgent || "";
+	var vendor = navigator.vendor || "";
+	if (!ua.includes("Safari/")) return false;
+	if (/(Chrome|CriOS|Chromium|Edg|OPR|FxiOS|Firefox|SamsungBrowser)/.test(ua)) return false;
+	return /Apple/i.test(vendor) || ua.includes("Safari/");
+}
+
 function fetchIdentity() {
 	if (!mounted) return;
 	sendRpc("agent.identity.get", {}).then((res) => {
@@ -229,7 +238,11 @@ function IdentitySection() {
 	var [userName, setUserName] = useState(id?.user_name || "");
 	var [soul, setSoul] = useState(id?.soul || "");
 	var [saving, setSaving] = useState(false);
+	var [emojiSaving, setEmojiSaving] = useState(false);
+	var [nameSaving, setNameSaving] = useState(false);
+	var [userNameSaving, setUserNameSaving] = useState(false);
 	var [saved, setSaved] = useState(false);
+	var [showFaviconReloadHint, setShowFaviconReloadHint] = useState(false);
 	var [error, setError] = useState(null);
 
 	// Sync state when identity loads asynchronously
@@ -242,6 +255,14 @@ function IdentitySection() {
 		setUserName(id.user_name || "");
 		setSoul(id.soul || "");
 	}, [id]);
+
+	function flashSaved() {
+		setSaved(true);
+		setTimeout(() => {
+			setSaved(false);
+			rerender();
+		}, 2000);
+	}
 
 	if (loading.value) {
 		return html`<div class="flex-1 flex flex-col min-w-0 p-4 gap-4 overflow-y-auto">
@@ -278,12 +299,11 @@ function IdentitySection() {
 			setSaving(false);
 			if (res?.ok) {
 				identity.value = res.payload;
+				gon.set("identity", res.payload);
 				refreshGon();
-				setSaved(true);
-				setTimeout(() => {
-					setSaved(false);
-					rerender();
-				}, 2000);
+				var emojiChanged = (emoji.trim() || "") !== (id?.emoji || "").trim();
+				setShowFaviconReloadHint(emojiChanged && isSafariBrowser());
+				flashSaved();
 			} else {
 				setError(res?.error?.message || "Failed to save");
 			}
@@ -291,9 +311,85 @@ function IdentitySection() {
 		});
 	}
 
+	function onEmojiSelect(nextEmoji) {
+		setEmoji(nextEmoji);
+		setError(null);
+		setSaved(false);
+		setEmojiSaving(true);
+		sendRpc("agent.identity.update", { emoji: nextEmoji.trim() || "" }).then((res) => {
+			setEmojiSaving(false);
+			if (res?.ok) {
+				identity.value = res.payload;
+				setEmoji(res.payload?.emoji || "");
+				gon.set("identity", res.payload);
+				refreshGon();
+				var emojiChanged = (nextEmoji.trim() || "") !== (id?.emoji || "").trim();
+				setShowFaviconReloadHint(emojiChanged && isSafariBrowser());
+				flashSaved();
+			} else {
+				setError(res?.error?.message || "Failed to save emoji");
+			}
+			rerender();
+		});
+	}
+
+	function autoSaveNameField(field, value) {
+		if (saving || emojiSaving || nameSaving || userNameSaving) return;
+		var trimmed = value.trim();
+		var currentValue = (identity.value?.[field] || "").trim();
+		if (trimmed === currentValue) return;
+
+		if (!trimmed) {
+			setError(field === "name" ? "Agent name is required." : "Your name is required.");
+			return;
+		}
+
+		setError(null);
+		setSaved(false);
+		if (field === "name") {
+			setNameSaving(true);
+		} else {
+			setUserNameSaving(true);
+		}
+
+		var payload = {};
+		payload[field] = trimmed;
+		sendRpc("agent.identity.update", payload).then((res) => {
+			if (field === "name") {
+				setNameSaving(false);
+			} else {
+				setUserNameSaving(false);
+			}
+
+			if (res?.ok) {
+				identity.value = res.payload;
+				gon.set("identity", res.payload);
+				refreshGon();
+				setName(res.payload?.name || "");
+				setUserName(res.payload?.user_name || "");
+				flashSaved();
+			} else {
+				setError(res?.error?.message || "Failed to save");
+			}
+			rerender();
+		});
+	}
+
+	function onNameBlur() {
+		autoSaveNameField("name", name);
+	}
+
+	function onUserNameBlur() {
+		autoSaveNameField("user_name", userName);
+	}
+
 	function onResetSoul() {
 		setSoul("");
 		rerender();
+	}
+
+	function onReloadForFavicon() {
+		window.location.reload();
 	}
 
 	return html`<div class="flex-1 flex flex-col min-w-0 p-4 gap-4 overflow-y-auto">
@@ -311,42 +407,49 @@ function IdentitySection() {
 				<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">Agent</h3>
 				<p class="text-xs text-[var(--muted)]" style="margin:0 0 8px;">Saved to <code>IDENTITY.md</code> in your workspace root.</p>
 				<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;">
-					<div>
-						<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Name *</div>
-						<input type="text" class="provider-key-input" style="width:100%;"
-							value=${name} onInput=${(e) => setName(e.target.value)}
-							placeholder="e.g. Rex" />
-					</div>
-					<div>
-						<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Emoji</div>
-						<${EmojiPicker} value=${emoji} onChange=${setEmoji} />
-					</div>
+						<div>
+							<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Name *</div>
+							<input type="text" class="provider-key-input" style="width:100%;"
+								value=${name} onInput=${(e) => setName(e.target.value)} onBlur=${onNameBlur}
+								placeholder="e.g. Rex" />
+						</div>
+						<div>
+							<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Emoji</div>
+							<${EmojiPicker} value=${emoji} onChange=${setEmoji} onSelect=${onEmojiSelect} />
+						</div>
 					<div>
 						<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Creature</div>
 						<input type="text" class="provider-key-input" style="width:100%;"
 							value=${creature} onInput=${(e) => setCreature(e.target.value)}
 							placeholder="e.g. dog" />
 					</div>
-					<div>
-						<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Vibe</div>
-						<input type="text" class="provider-key-input" style="width:100%;"
-							value=${vibe} onInput=${(e) => setVibe(e.target.value)}
-							placeholder="e.g. chill" />
+						<div>
+							<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Vibe</div>
+							<input type="text" class="provider-key-input" style="width:100%;"
+								value=${vibe} onInput=${(e) => setVibe(e.target.value)}
+								placeholder="e.g. chill" />
+						</div>
 					</div>
+					${
+						showFaviconReloadHint
+							? html`<div class="mt-3 rounded border border-[var(--border)] bg-[var(--surface2)] p-2 text-xs text-[var(--muted)]">
+								favicon updates requires reload and may be cached for minutes, <button type="button" class="cursor-pointer bg-transparent p-0 text-xs text-[var(--text)] underline" onClick=${onReloadForFavicon}>requires reload</button>.
+							</div>`
+							: null
+					}
 				</div>
-			</div>
 
 			<!-- User section -->
 			<div>
 				<h3 class="text-sm font-medium text-[var(--text-strong)]" style="margin-bottom:8px;">User</h3>
 				<p class="text-xs text-[var(--muted)]" style="margin:0 0 8px;">Saved to <code>USER.md</code> in your workspace root.</p>
-				<div>
-					<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Your name *</div>
-					<input type="text" class="provider-key-input" style="width:100%;max-width:280px;"
-						value=${userName} onInput=${(e) => setUserName(e.target.value)}
-						placeholder="e.g. Alice" />
+					<div>
+						<div class="text-xs text-[var(--muted)]" style="margin-bottom:4px;">Your name *</div>
+						<input type="text" class="provider-key-input" style="width:100%;max-width:280px;"
+							value=${userName} onInput=${(e) => setUserName(e.target.value)} onBlur=${onUserNameBlur}
+							placeholder="e.g. Alice" />
+					</div>
 				</div>
-			</div>
 
 			<!-- Soul section -->
 			<div>
@@ -368,10 +471,10 @@ function IdentitySection() {
 				}
 			</div>
 
-			<div style="display:flex;align-items:center;gap:8px;">
-				<button type="submit" class="provider-btn" disabled=${saving}>
-					${saving ? "Saving\u2026" : "Save"}
-				</button>
+					<div style="display:flex;align-items:center;gap:8px;">
+						<button type="submit" class="provider-btn" disabled=${saving || emojiSaving || nameSaving || userNameSaving}>
+							${saving || emojiSaving || nameSaving || userNameSaving ? "Saving\u2026" : "Save"}
+						</button>
 				${saved ? html`<span class="text-xs" style="color:var(--accent);">Saved</span>` : null}
 				${error ? html`<span class="text-xs" style="color:var(--error);">${error}</span>` : null}
 			</div>
@@ -584,6 +687,7 @@ function SecuritySection() {
 	var [authDisabled, setAuthDisabled] = useState(false);
 	var [localhostOnly, setLocalhostOnly] = useState(false);
 	var [hasPassword, setHasPassword] = useState(true);
+	var [hasPasskeys, setHasPasskeys] = useState(false);
 	var [setupComplete, setSetupComplete] = useState(false);
 	var [authLoading, setAuthLoading] = useState(true);
 
@@ -614,6 +718,27 @@ function SecuritySection() {
 		"operator.pairing": false,
 	});
 
+	function notifyAuthStatusChanged() {
+		window.dispatchEvent(new CustomEvent("moltis:auth-status-changed"));
+	}
+
+	// A credential added while localhost-bypass is active can immediately make the
+	// current session unauthenticated (no session cookie). Reload so middleware
+	// can route to /login in that transition.
+	function reloadIfAuthNowRequiresLogin() {
+		return fetch("/api/auth/status")
+			.then((r) => (r.ok ? r.json() : null))
+			.then((d) => {
+				var mustLogin = !!(d && d.auth_disabled === false && d.setup_required === false && d.authenticated === false);
+				if (mustLogin) {
+					window.location.reload();
+					return true;
+				}
+				return false;
+			})
+			.catch(() => false);
+	}
+
 	useEffect(() => {
 		fetch("/api/auth/status")
 			.then((r) => (r.ok ? r.json() : null))
@@ -621,6 +746,7 @@ function SecuritySection() {
 				if (d?.auth_disabled) setAuthDisabled(true);
 				if (d?.localhost_only) setLocalhostOnly(true);
 				if (d?.has_password === false) setHasPassword(false);
+				if (d?.has_passkeys === true) setHasPasskeys(true);
 				if (d?.setup_complete) setSetupComplete(true);
 				if (d?.passkey_origins) setPasskeyOrigins(d.passkey_origins);
 				setAuthLoading(false);
@@ -634,6 +760,7 @@ function SecuritySection() {
 			.then((r) => (r.ok ? r.json() : { passkeys: [] }))
 			.then((d) => {
 				setPasskeys(d.passkeys || []);
+				setHasPasskeys((d.passkeys || []).length > 0);
 				setPkLoading(false);
 				rerender();
 			})
@@ -669,15 +796,26 @@ function SecuritySection() {
 			body: JSON.stringify(payload),
 		})
 			.then((r) => {
-				if (r.ok) {
-					setPwMsg(hasPassword ? "Password changed." : "Password set.");
-					setCurPw("");
-					setNewPw("");
-					setConfirmPw("");
-					setHasPassword(true);
-				} else return r.text().then((t) => setPwErr(t));
-				setPwSaving(false);
-				rerender();
+				if (!r.ok) {
+					return r.text().then((t) => {
+						setPwErr(t);
+						setPwSaving(false);
+						rerender();
+					});
+				}
+
+				setPwMsg(hasPassword ? "Password changed." : "Password set.");
+				setCurPw("");
+				setNewPw("");
+				setConfirmPw("");
+				setHasPassword(true);
+				setSetupComplete(true);
+				setAuthDisabled(false);
+				return reloadIfAuthNowRequiresLogin().then((reloaded) => {
+					if (!reloaded) notifyAuthStatusChanged();
+					setPwSaving(false);
+					rerender();
+				});
 			})
 			.catch((err) => {
 				setPwErr(err.message);
@@ -729,13 +867,20 @@ function SecuritySection() {
 			.then((r) => {
 				if (r.ok) {
 					setPkName("");
-					return fetch("/api/auth/passkeys")
-						.then((r2) => r2.json())
-						.then((d) => {
-							setPasskeys(d.passkeys || []);
-							setPkMsg("Passkey added.");
-							rerender();
-						});
+					return reloadIfAuthNowRequiresLogin().then((reloaded) => {
+						if (reloaded) return;
+						return fetch("/api/auth/passkeys")
+							.then((r2) => r2.json())
+							.then((d) => {
+								setPasskeys(d.passkeys || []);
+								setHasPasskeys((d.passkeys || []).length > 0);
+								setSetupComplete(true);
+								setAuthDisabled(false);
+								setPkMsg("Passkey added.");
+								notifyAuthStatusChanged();
+								rerender();
+							});
+					});
 				} else
 					return r.text().then((t) => {
 						setPkMsg(t);
@@ -782,6 +927,8 @@ function SecuritySection() {
 			.then(() => fetch("/api/auth/passkeys").then((r) => r.json()))
 			.then((d) => {
 				setPasskeys(d.passkeys || []);
+				setHasPasskeys((d.passkeys || []).length > 0);
+				notifyAuthStatusChanged();
 				rerender();
 			});
 	}
@@ -878,18 +1025,13 @@ function SecuritySection() {
 		</div>`;
 	}
 
-	if (authDisabled) {
-		var isScary = !localhostOnly;
+	if (authDisabled && !localhostOnly) {
 		return html`<div class="flex-1 flex flex-col min-w-0 p-4 gap-4 overflow-y-auto">
 			<h2 class="text-lg font-medium text-[var(--text-strong)]">Security</h2>
 			<div style="max-width:600px;padding:12px 16px;border-radius:6px;border:1px solid var(--error);background:color-mix(in srgb, var(--error) 5%, transparent);">
 				<strong style="color:var(--error);">Authentication is disabled</strong>
 				<p class="text-xs text-[var(--muted)]" style="margin:8px 0 0;">
-					${
-						isScary
-							? "Anyone with network access can control moltis and your computer. Set up a password to protect your instance."
-							: "Authentication has been removed. While localhost-only access is safe, you should set up a password before exposing moltis to the network."
-					}
+					Anyone with network access can control moltis and your computer. Set up a password to protect your instance.
 				</p>
 				<button type="button" class="provider-btn" style="margin-top:10px;"
 					onClick=${() => {
@@ -903,11 +1045,23 @@ function SecuritySection() {
 		<h2 class="text-lg font-medium text-[var(--text-strong)]">Security</h2>
 
 		${
-			localhostOnly && !hasPassword
+			authDisabled && localhostOnly
+				? html`<div style="max-width:600px;padding:12px 16px;border-radius:6px;border:1px solid var(--error);background:color-mix(in srgb, var(--error) 5%, transparent);">
+					<strong style="color:var(--error);">Authentication is disabled</strong>
+					<p class="text-xs text-[var(--muted)]" style="margin:8px 0 0;">
+						Localhost-only access is safe, but localhost bypass is active. Until you add a password or passkey, this browser has full access and Sign out has no effect.
+						Add credentials below to require login on localhost and before exposing Moltis to your network.
+					</p>
+				</div>`
+				: null
+		}
+
+		${
+			localhostOnly && !hasPassword && !hasPasskeys && !authDisabled
 				? html`<div class="alert-info-text max-w-form">
 					<span class="alert-label-info">Note: </span>
-					Moltis is running on localhost, so you have full access without a password.
-					Set a password before exposing moltis to the network.
+					Localhost bypass is active. Until you add a password or passkey, this browser has full access and Sign out has no effect.
+					Add credentials to require login on localhost and before exposing Moltis to your network.
 				</div>`
 				: null
 		}
