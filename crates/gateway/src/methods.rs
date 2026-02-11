@@ -65,6 +65,7 @@ const READ_METHODS: &[&str] = &[
     "sessions.preview",
     "sessions.search",
     "sessions.branches",
+    "sessions.run_detail",
     "projects.list",
     "projects.get",
     "projects.context",
@@ -1413,6 +1414,19 @@ impl MethodRegistry {
                         .services
                         .session
                         .branches(ctx.params.clone())
+                        .await
+                        .map_err(|e| ErrorShape::new(error_codes::UNAVAILABLE, e))
+                })
+            }),
+        );
+        self.register(
+            "sessions.run_detail",
+            Box::new(|ctx| {
+                Box::pin(async move {
+                    ctx.state
+                        .services
+                        .session
+                        .run_detail(ctx.params.clone())
                         .await
                         .map_err(|e| ErrorShape::new(error_codes::UNAVAILABLE, e))
                 })

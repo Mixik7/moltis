@@ -218,6 +218,7 @@ pub trait SessionService: Send + Sync {
     async fn search(&self, params: Value) -> ServiceResult;
     async fn fork(&self, params: Value) -> ServiceResult;
     async fn branches(&self, params: Value) -> ServiceResult;
+    async fn run_detail(&self, params: Value) -> ServiceResult;
     async fn clear_all(&self) -> ServiceResult;
     async fn mark_seen(&self, key: &str);
 }
@@ -264,6 +265,10 @@ impl SessionService for NoopSessionService {
 
     async fn branches(&self, _p: Value) -> ServiceResult {
         Ok(serde_json::json!([]))
+    }
+
+    async fn run_detail(&self, _p: Value) -> ServiceResult {
+        Ok(serde_json::json!({}))
     }
 
     async fn clear_all(&self) -> ServiceResult {

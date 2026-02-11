@@ -150,6 +150,50 @@ impl SessionStore {
         .await?
     }
 
+    /// Read all messages belonging to a specific agent run.
+    ///
+    /// Returns messages that have a matching `run_id` field, plus adjacent
+    /// `tool_result` messages that sit between the matching user and assistant
+    /// messages (these don't carry `run_id` themselves but belong to the run).
+    pub async fn read_by_run_id(
+        &self,
+        key: &str,
+        run_id: &str,
+    ) -> Result<Vec<serde_json::Value>> {
+        let all = self.read(key).await?;
+        let run_id = run_id.to_string();
+
+        tokio::task::spawn_blocking(move || -> Result<Vec<serde_json::Value>> {
+            let mut result = Vec::new();
+            let mut in_run = false;
+
+            for msg in &all {
+                let msg_run_id = msg.get("run_id").and_then(|v| v.as_str());
+
+                if msg_run_id == Some(&run_id) {
+                    in_run = true;
+                    result.push(msg.clone());
+                    continue;
+                }
+
+                // Collect tool_result messages between the run's user and assistant messages.
+                let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                if in_run && role == "tool_result" {
+                    result.push(msg.clone());
+                    continue;
+                }
+
+                // Any non-tool_result message without matching run_id ends the run scope.
+                if in_run {
+                    in_run = false;
+                }
+            }
+
+            Ok(result)
+        })
+        .await?
+    }
+
     /// Delete the session file and its media directory.
     pub async fn clear(&self, key: &str) -> Result<()> {
         let path = self.path_for(key);
@@ -595,5 +639,74 @@ mod tests {
 
         assert!(!media_dir.exists());
         assert!(store.read("main").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_read_by_run_id() {
+        let (store, _dir) = temp_store();
+
+        // Simulate a session with two runs.
+        store
+            .append(
+                "main",
+                &json!({"role": "user", "content": "hello", "run_id": "run-1"}),
+            )
+            .await
+            .unwrap();
+        store
+            .append(
+                "main",
+                &json!({"role": "tool_result", "tool_name": "exec", "success": true}),
+            )
+            .await
+            .unwrap();
+        store
+            .append(
+                "main",
+                &json!({"role": "assistant", "content": "done", "run_id": "run-1"}),
+            )
+            .await
+            .unwrap();
+        store
+            .append(
+                "main",
+                &json!({"role": "user", "content": "another", "run_id": "run-2"}),
+            )
+            .await
+            .unwrap();
+        store
+            .append(
+                "main",
+                &json!({"role": "assistant", "content": "ok", "run_id": "run-2"}),
+            )
+            .await
+            .unwrap();
+
+        let run1 = store.read_by_run_id("main", "run-1").await.unwrap();
+        assert_eq!(run1.len(), 3);
+        assert_eq!(run1[0]["role"], "user");
+        assert_eq!(run1[1]["role"], "tool_result");
+        assert_eq!(run1[2]["role"], "assistant");
+
+        let run2 = store.read_by_run_id("main", "run-2").await.unwrap();
+        assert_eq!(run2.len(), 2);
+        assert_eq!(run2[0]["role"], "user");
+        assert_eq!(run2[1]["role"], "assistant");
+    }
+
+    #[tokio::test]
+    async fn test_read_by_run_id_nonexistent() {
+        let (store, _dir) = temp_store();
+
+        store
+            .append(
+                "main",
+                &json!({"role": "user", "content": "hi", "run_id": "run-1"}),
+            )
+            .await
+            .unwrap();
+
+        let result = store.read_by_run_id("main", "no-such-run").await.unwrap();
+        assert!(result.is_empty());
     }
 }

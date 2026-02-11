@@ -3687,13 +3687,14 @@ async fn run_with_tools(
                             }
                             r
                         });
-                        let tool_result_msg = PersistedMessage::tool_result(
+                        let tool_result_msg = PersistedMessage::tool_result_with_run_id(
                             id,
                             name,
                             tracked_args,
                             *success,
                             persisted_result,
                             error.clone(),
+                            run_id.clone(),
                         );
                         let store_clone = Arc::clone(store);
                         let sk_persist = sk.clone();

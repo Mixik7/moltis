@@ -10,6 +10,7 @@ import {
 	stripChannelPrefix,
 	updateTokenBar,
 } from "./chat-ui.js";
+import { mountRunDetail } from "./run-detail-mount.js";
 import * as gon from "./gon.js";
 import {
 	formatTokens,
@@ -275,6 +276,10 @@ function renderHistoryAssistantMessage(msg) {
 	}
 	if (el && msg.model) {
 		el.appendChild(createModelFooter(msg));
+	}
+	// Mount run detail component if this message has a run_id.
+	if (el && msg.run_id) {
+		mountRunDetail(el, S.activeSessionKey, msg.run_id);
 	}
 	if (msg.inputTokens || msg.outputTokens) {
 		S.sessionTokens.input += msg.inputTokens || 0;
