@@ -71,13 +71,13 @@ impl DiscordPlugin {
 
     /// List all active account IDs.
     pub fn account_ids(&self) -> Vec<String> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts.keys().cloned().collect()
     }
 
     /// Get the config for a specific account (serialized to JSON).
     pub fn account_config(&self, account_id: &str) -> Option<serde_json::Value> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .and_then(|s| serde_json::to_value(&s.config).ok())
@@ -130,7 +130,7 @@ impl ChannelPlugin for DiscordPlugin {
 
         // Store initial state (will be updated when ready event fires)
         {
-            let mut accts = accounts.write().unwrap();
+            let mut accts = accounts.write().unwrap_or_else(|e| e.into_inner());
             accts.insert(account_id.to_string(), AccountState {
                 http: Arc::clone(&http),
                 bot_user_id: None,
@@ -187,7 +187,7 @@ impl ChannelPlugin for DiscordPlugin {
             }
 
             // Clean up on exit
-            let mut accts = accounts.write().unwrap();
+            let mut accts = accounts.write().unwrap_or_else(|e| e.into_inner());
             accts.remove(&account_id_owned);
         });
 
@@ -196,14 +196,14 @@ impl ChannelPlugin for DiscordPlugin {
 
     async fn stop_account(&mut self, account_id: &str) -> Result<()> {
         let cancel = {
-            let accounts = self.accounts.read().unwrap();
+            let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
             accounts.get(account_id).map(|s| s.cancel.clone())
         };
 
         if let Some(cancel) = cancel {
             info!(account_id, "stopping discord account");
             cancel.cancel();
-            let mut accounts = self.accounts.write().unwrap();
+            let mut accounts = self.accounts.write().unwrap_or_else(|e| e.into_inner());
             accounts.remove(account_id);
         } else {
             warn!(account_id, "discord account not found");
@@ -233,7 +233,7 @@ impl ChannelStatus for DiscordPlugin {
         }
 
         let http = {
-            let accounts = self.accounts.read().unwrap();
+            let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
             accounts.get(account_id).map(|s| s.http.clone())
         };
 

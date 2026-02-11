@@ -27,7 +27,7 @@ impl SlackOutbound {
         Arc<SlackClient<SlackClientHyperConnector<SlackHyperHttpsConnector>>>,
         SlackApiToken,
     )> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         let state = accounts
             .get(account_id)
             .ok_or_else(|| anyhow::anyhow!("unknown account: {account_id}"))?;
@@ -40,14 +40,14 @@ impl SlackOutbound {
     }
 
     fn get_thread_ts(&self, account_id: &str, channel_id: &str) -> Option<String> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .and_then(|s| s.pending_threads.get(channel_id).cloned())
     }
 
     fn get_throttle_ms(&self, account_id: &str) -> u64 {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .map(|s| s.config.edit_throttle_ms)

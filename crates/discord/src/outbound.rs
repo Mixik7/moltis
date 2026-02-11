@@ -26,7 +26,7 @@ pub struct DiscordOutbound {
 
 impl DiscordOutbound {
     fn get_http(&self, account_id: &str) -> Result<Arc<Http>> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .map(|s| s.http.clone())
@@ -34,14 +34,14 @@ impl DiscordOutbound {
     }
 
     fn get_pending_reply(&self, account_id: &str, channel_id: &str) -> Option<u64> {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .and_then(|s| s.pending_replies.get(channel_id).copied())
     }
 
     fn get_throttle_ms(&self, account_id: &str) -> u64 {
-        let accounts = self.accounts.read().unwrap();
+        let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
         accounts
             .get(account_id)
             .map(|s| s.config.edit_throttle_ms)

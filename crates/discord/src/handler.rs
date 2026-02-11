@@ -98,7 +98,7 @@ impl EventHandler for DiscordHandler {
 
         // Store bot user ID
         {
-            let mut accounts = self.accounts.write().unwrap();
+            let mut accounts = self.accounts.write().unwrap_or_else(|e| e.into_inner());
             if let Some(state) = accounts.get_mut(&self.account_id) {
                 state.bot_user_id = Some(ready.user.id.get());
                 state.http = ctx.http.clone();
@@ -122,7 +122,7 @@ impl EventHandler for DiscordHandler {
 
         // Get bot user ID from cache
         let bot_user_id = {
-            let accounts = self.accounts.read().unwrap();
+            let accounts = self.accounts.read().unwrap_or_else(|e| e.into_inner());
             accounts.get(&self.account_id).and_then(|s| s.bot_user_id)
         };
 
@@ -246,7 +246,7 @@ impl EventHandler for DiscordHandler {
 
         // Store message ID for replies
         {
-            let mut accounts = self.accounts.write().unwrap();
+            let mut accounts = self.accounts.write().unwrap_or_else(|e| e.into_inner());
             if let Some(state) = accounts.get_mut(&self.account_id) {
                 state
                     .pending_replies

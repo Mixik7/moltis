@@ -69,7 +69,7 @@ pub async fn start_socket_mode(
 
     // Store initial state
     {
-        let mut accts = accounts.write().unwrap();
+        let mut accts = accounts.write().unwrap_or_else(|e| e.into_inner());
         accts.insert(account_id.clone(), AccountState {
             client: Arc::clone(&client),
             bot_user_id: bot_user_id.clone(),
@@ -109,7 +109,7 @@ pub async fn start_socket_mode(
         }
 
         // Clean up on exit
-        let mut accts = accounts.write().unwrap();
+        let mut accts = accounts.write().unwrap_or_else(|e| e.into_inner());
         accts.remove(&account_id_clone);
     });
 
@@ -363,7 +363,7 @@ async fn handle_message_event(state: &SocketModeState, event: &SlackMessageEvent
     if state.config.thread_replies
         && let Some(ts) = thread_ts.or_else(|| Some(event.origin.ts.clone()))
     {
-        let mut accts = state.accounts.write().unwrap();
+        let mut accts = state.accounts.write().unwrap_or_else(|e| e.into_inner());
         if let Some(account_state) = accts.get_mut(&state.account_id) {
             account_state
                 .pending_threads
