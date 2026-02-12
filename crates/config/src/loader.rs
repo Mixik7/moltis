@@ -263,6 +263,131 @@ pub fn heartbeat_path() -> PathBuf {
     data_dir().join("HEARTBEAT.md")
 }
 
+// ── Per-agent workspace helpers ──────────────────────────────────────
+
+/// Return the data directory for a given agent.
+///
+/// - `"main"` returns `data_dir()` directly (no migration needed).
+/// - Any other id returns `data_dir()/agents/<id>/`.
+pub fn agent_data_dir(agent_id: &str) -> PathBuf {
+    if agent_id == "main" {
+        data_dir()
+    } else {
+        data_dir().join("agents").join(agent_id)
+    }
+}
+
+/// Load identity for a specific agent. `"main"` delegates to global [`load_identity`].
+pub fn load_identity_for_agent(agent_id: &str) -> Option<AgentIdentity> {
+    if agent_id == "main" {
+        return load_identity();
+    }
+    let path = agent_data_dir(agent_id).join("IDENTITY.md");
+    let content = std::fs::read_to_string(path).ok()?;
+    let frontmatter = extract_yaml_frontmatter(&content)?;
+    let identity = parse_identity_frontmatter(frontmatter);
+    if identity.name.is_none()
+        && identity.emoji.is_none()
+        && identity.creature.is_none()
+        && identity.vibe.is_none()
+    {
+        None
+    } else {
+        Some(identity)
+    }
+}
+
+/// Load SOUL.md for a specific agent. `"main"` delegates to global [`load_soul`].
+pub fn load_soul_for_agent(agent_id: &str) -> Option<String> {
+    if agent_id == "main" {
+        return load_soul();
+    }
+    let path = agent_data_dir(agent_id).join("SOUL.md");
+    let content = std::fs::read_to_string(path).ok()?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Persist identity for a specific agent. `"main"` delegates to global [`save_identity`].
+pub fn save_identity_for_agent(
+    agent_id: &str,
+    identity: &AgentIdentity,
+) -> anyhow::Result<PathBuf> {
+    if agent_id == "main" {
+        return save_identity(identity);
+    }
+    let dir = agent_data_dir(agent_id);
+    let path = dir.join("IDENTITY.md");
+    let has_values = identity.name.is_some()
+        || identity.emoji.is_some()
+        || identity.creature.is_some()
+        || identity.vibe.is_some();
+
+    if !has_values {
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        return Ok(path);
+    }
+
+    std::fs::create_dir_all(&dir)?;
+
+    let mut yaml_lines = Vec::new();
+    if let Some(name) = identity.name.as_deref() {
+        yaml_lines.push(format!("name: {}", yaml_scalar(name)));
+    }
+    if let Some(emoji) = identity.emoji.as_deref() {
+        yaml_lines.push(format!("emoji: {}", yaml_scalar(emoji)));
+    }
+    if let Some(creature) = identity.creature.as_deref() {
+        yaml_lines.push(format!("creature: {}", yaml_scalar(creature)));
+    }
+    if let Some(vibe) = identity.vibe.as_deref() {
+        yaml_lines.push(format!("vibe: {}", yaml_scalar(vibe)));
+    }
+    let yaml = yaml_lines.join("\n");
+    let content = format!(
+        "---\n{}\n---\n\n# IDENTITY.md\n\nThis file is managed by Moltis settings.\n",
+        yaml
+    );
+    std::fs::write(&path, content)?;
+    Ok(path)
+}
+
+/// Persist SOUL.md for a specific agent. `"main"` delegates to global [`save_soul`].
+pub fn save_soul_for_agent(agent_id: &str, soul: Option<&str>) -> anyhow::Result<PathBuf> {
+    if agent_id == "main" {
+        return save_soul(soul);
+    }
+    let dir = agent_data_dir(agent_id);
+    let path = dir.join("SOUL.md");
+    match soul.map(str::trim) {
+        Some(content) if !content.is_empty() => {
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(&path, content)?;
+        },
+        _ => {
+            if path.exists() {
+                std::fs::remove_file(&path)?;
+            }
+        },
+    }
+    Ok(path)
+}
+
+/// Load AGENTS.md scoped to a specific agent, falling back to global.
+pub fn load_agents_md_for_agent(agent_id: &str) -> Option<String> {
+    if agent_id == "main" {
+        return load_agents_md();
+    }
+    let agent_path = agent_data_dir(agent_id).join("AGENTS.md");
+    load_workspace_markdown(agent_path).or_else(load_agents_md)
+}
+
 /// Load identity values from `IDENTITY.md` frontmatter if present.
 pub fn load_identity() -> Option<AgentIdentity> {
     let path = identity_path();

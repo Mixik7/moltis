@@ -207,6 +207,7 @@ impl SessionService for LiveSessionService {
                 "forkPoint": e.fork_point,
                 "mcpDisabled": e.mcp_disabled,
                 "preview": e.preview,
+                "agentId": e.agent_id,
                 "version": e.version,
             }));
         }
@@ -277,6 +278,7 @@ impl SessionService for LiveSessionService {
                 "sandbox_image": entry.sandbox_image,
                 "worktree_branch": entry.worktree_branch,
                 "mcpDisabled": entry.mcp_disabled,
+                "agentId": entry.agent_id,
                 "version": entry.version,
             },
             "history": filter_ui_history(history),

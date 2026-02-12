@@ -43,6 +43,8 @@ pub struct SessionEntry {
     pub mcp_disabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
     #[serde(default)]
     pub version: u64,
 }
@@ -120,6 +122,7 @@ impl SessionMetadata {
                 fork_point: None,
                 mcp_disabled: None,
                 preview: None,
+                agent_id: None,
                 version: 0,
             })
     }
@@ -196,6 +199,15 @@ impl SessionMetadata {
         }
     }
 
+    /// Set the agent_id for a session.
+    pub fn set_agent_id(&mut self, key: &str, agent_id: Option<String>) {
+        if let Some(entry) = self.entries.get_mut(key) {
+            entry.agent_id = agent_id;
+            entry.updated_at = now_ms();
+            entry.version += 1;
+        }
+    }
+
     /// Remove an entry by key. Returns the removed entry if found.
     pub fn remove(&mut self, key: &str) -> Option<SessionEntry> {
         self.entries.remove(key)
@@ -236,6 +248,7 @@ struct SessionRow {
     fork_point: Option<i32>,
     mcp_disabled: Option<i32>,
     preview: Option<String>,
+    agent_id: Option<String>,
     version: i64,
 }
 
@@ -260,6 +273,7 @@ impl From<SessionRow> for SessionEntry {
             fork_point: r.fork_point.map(|v| v as u32),
             mcp_disabled: r.mcp_disabled.map(|v| v != 0),
             preview: r.preview,
+            agent_id: r.agent_id,
             version: r.version as u64,
         }
     }
@@ -296,6 +310,7 @@ impl SqliteSessionMetadata {
                 fork_point          INTEGER,
                 mcp_disabled        INTEGER,
                 preview             TEXT,
+                agent_id            TEXT,
                 version             INTEGER NOT NULL DEFAULT 0
             )"#,
         )
@@ -488,6 +503,20 @@ impl SqliteSessionMetadata {
             .execute(&self.pool)
             .await
             .ok();
+    }
+
+    /// Set the agent_id for a session.
+    pub async fn set_agent_id(&self, key: &str, agent_id: Option<String>) {
+        let now = now_ms() as i64;
+        sqlx::query(
+            "UPDATE sessions SET agent_id = ?, updated_at = ?, version = version + 1 WHERE key = ?",
+        )
+        .bind(&agent_id)
+        .bind(now)
+        .bind(key)
+        .execute(&self.pool)
+        .await
+        .ok();
     }
 
     /// Set the parent session key and fork point for a branched session.

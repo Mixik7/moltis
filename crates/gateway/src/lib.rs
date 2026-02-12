@@ -10,6 +10,8 @@
 //! All domain logic (agents, channels, etc.) lives in other crates and is
 //! invoked through method handlers registered in `methods.rs`.
 
+#[cfg(feature = "agent")]
+pub mod agent_persona;
 pub mod approval;
 pub mod auth;
 pub mod auth_middleware;

@@ -1258,6 +1258,77 @@ impl ChannelEventSink for GatewayChannelEventSink {
                     Err(anyhow!("usage: /sandbox [on|off|image N]"))
                 }
             },
+            #[cfg(feature = "agent")]
+            "agent" => {
+                let store = state
+                    .services
+                    .agent_persona_store
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("agent feature not available"))?;
+                let agents = store.list().await.map_err(|e| anyhow!("{e}"))?;
+
+                if args.is_empty() {
+                    // List available agents with current marker.
+                    let entry = session_metadata.get(&session_key).await;
+                    let current_id = entry
+                        .as_ref()
+                        .and_then(|e| e.agent_id.as_deref())
+                        .unwrap_or("main");
+                    let lines: Vec<String> = agents
+                        .iter()
+                        .enumerate()
+                        .map(|(i, a)| {
+                            let marker = if a.id == current_id {
+                                " *"
+                            } else {
+                                ""
+                            };
+                            let emoji = a.emoji.as_deref().unwrap_or("");
+                            format!(
+                                "{}. {}{}{marker}",
+                                i + 1,
+                                if emoji.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!("{emoji} ")
+                                },
+                                a.name
+                            )
+                        })
+                        .collect();
+                    Ok(format!(
+                        "Agents:\n{}\n\nUse /agent <number> to switch.",
+                        lines.join("\n")
+                    ))
+                } else {
+                    // Switch to a specific agent by number or id.
+                    let chosen = if let Ok(n) = args.parse::<usize>() {
+                        agents
+                            .get(n.saturating_sub(1))
+                            .map(|a| a.id.clone())
+                            .ok_or_else(|| anyhow!("invalid agent number: {n}"))?
+                    } else {
+                        let id = args.to_lowercase();
+                        agents
+                            .iter()
+                            .find(|a| a.id == id)
+                            .map(|a| a.id.clone())
+                            .ok_or_else(|| anyhow!("agent '{id}' not found"))?
+                    };
+                    let agent_val = if chosen == "main" {
+                        None
+                    } else {
+                        Some(chosen.clone())
+                    };
+                    session_metadata.set_agent_id(&session_key, agent_val).await;
+                    let display = agents
+                        .iter()
+                        .find(|a| a.id == chosen)
+                        .map(|a| a.name.as_str())
+                        .unwrap_or(&chosen);
+                    Ok(format!("Switched to agent: {display}"))
+                }
+            },
             _ => Err(anyhow!("unknown command: /{cmd}")),
         }
     }

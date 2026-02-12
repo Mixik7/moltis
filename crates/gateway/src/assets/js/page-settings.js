@@ -10,6 +10,7 @@ import * as gon from "./gon.js";
 import { refresh as refreshGon } from "./gon.js";
 import { sendRpc } from "./helpers.js";
 // Moved page init/teardown imports
+import { initAgents, teardownAgents } from "./page-agents.js";
 import { initChannels, teardownChannels } from "./page-channels.js";
 import { initCrons, teardownCrons } from "./page-crons.js";
 import { initHooks, teardownHooks } from "./page-hooks.js";
@@ -72,6 +73,12 @@ var sections = [
 		id: "identity",
 		label: "Identity",
 		icon: html`<span class="icon icon-person"></span>`,
+	},
+	{
+		id: "agents",
+		label: "Agents",
+		icon: html`<span class="icon icon-person"></span>`,
+		page: true,
 	},
 	{
 		id: "environment",
@@ -3232,6 +3239,7 @@ function NotificationsSection() {
 // ── Page-section init/teardown map ──────────────────────────
 
 var pageSectionHandlers = {
+	agents: { init: initAgents, teardown: teardownAgents },
 	crons: {
 		init: (container) => initCrons(container, null, { syncRoute: false }),
 		teardown: teardownCrons,

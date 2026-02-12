@@ -54,6 +54,8 @@ const READ_METHODS: &[&str] = &[
     "models.list",
     "models.list_all",
     "agents.list",
+    "agents.get",
+    "agents.identity.get",
     "agent.identity.get",
     "skills.list",
     "skills.status",
@@ -107,6 +109,12 @@ const WRITE_METHODS: &[&str] = &[
     "agent.wait",
     "agent.identity.update",
     "agent.identity.update_soul",
+    "agents.create",
+    "agents.update",
+    "agents.delete",
+    "agents.set_session",
+    "agents.identity.update",
+    "agents.identity.update_soul",
     "wake",
     "talk.mode",
     "tts.enable",
@@ -1243,6 +1251,16 @@ impl MethodRegistry {
             "agents.list",
             Box::new(|ctx| {
                 Box::pin(async move {
+                    #[cfg(feature = "agent")]
+                    {
+                        if let Some(ref store) = ctx.state.services.agent_persona_store {
+                            let agents = store.list().await.map_err(|e| {
+                                ErrorShape::new(error_codes::UNAVAILABLE, e.to_string())
+                            })?;
+                            return Ok(serde_json::to_value(&agents)
+                                .unwrap_or_else(|_| serde_json::json!([])));
+                        }
+                    }
                     ctx.state
                         .services
                         .agent
@@ -1252,6 +1270,237 @@ impl MethodRegistry {
                 })
             }),
         );
+
+        #[cfg(feature = "agent")]
+        {
+            self.register(
+                "agents.get",
+                Box::new(|ctx| {
+                    Box::pin(async move {
+                        let id =
+                            ctx.params
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .ok_or_else(|| {
+                                    ErrorShape::new(
+                                        error_codes::INVALID_REQUEST,
+                                        "missing 'id' parameter",
+                                    )
+                                })?;
+                        let store =
+                            ctx.state
+                                .services
+                                .agent_persona_store
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    ErrorShape::new(
+                                        error_codes::UNAVAILABLE,
+                                        "agent feature not available",
+                                    )
+                                })?;
+                        let agent = store.get(id).await.map_err(|e| {
+                            ErrorShape::new(error_codes::UNAVAILABLE, e.to_string())
+                        })?;
+                        Ok(serde_json::to_value(&agent).unwrap_or(serde_json::Value::Null))
+                    })
+                }),
+            );
+
+            self.register(
+                "agents.create",
+                Box::new(|ctx| {
+                    Box::pin(async move {
+                        let store =
+                            ctx.state
+                                .services
+                                .agent_persona_store
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    ErrorShape::new(
+                                        error_codes::UNAVAILABLE,
+                                        "agent feature not available",
+                                    )
+                                })?;
+                        let params: crate::agent_persona::CreateAgentParams =
+                            serde_json::from_value(ctx.params.clone()).map_err(|e| {
+                                ErrorShape::new(
+                                    error_codes::INVALID_REQUEST,
+                                    format!("invalid params: {e}"),
+                                )
+                            })?;
+                        let agent = store.create(params).await.map_err(|e| {
+                            ErrorShape::new(error_codes::UNAVAILABLE, e.to_string())
+                        })?;
+                        Ok(serde_json::to_value(&agent).unwrap_or_else(|_| serde_json::json!({})))
+                    })
+                }),
+            );
+
+            self.register(
+                "agents.update",
+                Box::new(|ctx| {
+                    Box::pin(async move {
+                        let id = ctx
+                            .params
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ErrorShape::new(
+                                    error_codes::INVALID_REQUEST,
+                                    "missing 'id' parameter",
+                                )
+                            })?
+                            .to_string();
+                        let store =
+                            ctx.state
+                                .services
+                                .agent_persona_store
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    ErrorShape::new(
+                                        error_codes::UNAVAILABLE,
+                                        "agent feature not available",
+                                    )
+                                })?;
+                        let params: crate::agent_persona::UpdateAgentParams =
+                            serde_json::from_value(ctx.params.clone()).map_err(|e| {
+                                ErrorShape::new(
+                                    error_codes::INVALID_REQUEST,
+                                    format!("invalid params: {e}"),
+                                )
+                            })?;
+                        let agent = store.update(&id, params).await.map_err(|e| {
+                            ErrorShape::new(error_codes::UNAVAILABLE, e.to_string())
+                        })?;
+                        Ok(serde_json::to_value(&agent).unwrap_or_else(|_| serde_json::json!({})))
+                    })
+                }),
+            );
+
+            self.register(
+                "agents.delete",
+                Box::new(|ctx| {
+                    Box::pin(async move {
+                        let id =
+                            ctx.params
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .ok_or_else(|| {
+                                    ErrorShape::new(
+                                        error_codes::INVALID_REQUEST,
+                                        "missing 'id' parameter",
+                                    )
+                                })?;
+                        let store =
+                            ctx.state
+                                .services
+                                .agent_persona_store
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    ErrorShape::new(
+                                        error_codes::UNAVAILABLE,
+                                        "agent feature not available",
+                                    )
+                                })?;
+                        store.delete(id).await.map_err(|e| {
+                            ErrorShape::new(error_codes::UNAVAILABLE, e.to_string())
+                        })?;
+                        Ok(serde_json::json!({ "deleted": true }))
+                    })
+                }),
+            );
+
+            self.register(
+                "agents.set_session",
+                Box::new(|ctx| {
+                    Box::pin(async move {
+                        let session_key = ctx
+                            .params
+                            .get("session_key")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                ErrorShape::new(
+                                    error_codes::INVALID_REQUEST,
+                                    "missing 'session_key' parameter",
+                                )
+                            })?;
+                        let agent_id = ctx
+                            .params
+                            .get("agent_id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        if let Some(ref meta) = ctx.state.services.session_metadata {
+                            meta.set_agent_id(session_key, agent_id).await;
+                        }
+                        Ok(serde_json::json!({ "ok": true }))
+                    })
+                }),
+            );
+
+            self.register(
+                "agents.identity.get",
+                Box::new(|ctx| {
+                    Box::pin(async move {
+                        let agent_id = ctx
+                            .params
+                            .get("agent_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("main");
+                        ctx.state
+                            .services
+                            .onboarding
+                            .identity_get_for_agent(agent_id)
+                            .await
+                            .map_err(|e| ErrorShape::new(error_codes::UNAVAILABLE, e))
+                    })
+                }),
+            );
+
+            self.register(
+                "agents.identity.update",
+                Box::new(|ctx| {
+                    Box::pin(async move {
+                        let agent_id = ctx
+                            .params
+                            .get("agent_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("main")
+                            .to_string();
+                        ctx.state
+                            .services
+                            .onboarding
+                            .identity_update_for_agent(&agent_id, ctx.params)
+                            .await
+                            .map_err(|e| ErrorShape::new(error_codes::UNAVAILABLE, e))
+                    })
+                }),
+            );
+
+            self.register(
+                "agents.identity.update_soul",
+                Box::new(|ctx| {
+                    Box::pin(async move {
+                        let agent_id = ctx
+                            .params
+                            .get("agent_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("main")
+                            .to_string();
+                        let soul = ctx
+                            .params
+                            .get("soul")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        ctx.state
+                            .services
+                            .onboarding
+                            .identity_update_soul_for_agent(&agent_id, soul)
+                            .await
+                            .map_err(|e| ErrorShape::new(error_codes::UNAVAILABLE, e))
+                    })
+                }),
+            );
+        }
 
         // Sessions
         self.register(

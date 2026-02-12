@@ -1097,10 +1097,19 @@ pub async fn start_gateway(
     moltis_cron::run_migrations(&db_pool)
         .await
         .expect("failed to run cron migrations");
-    // Gateway's own tables (auth, message_log, channels).
+    // Gateway's own tables (auth, message_log, channels, agents).
     crate::run_migrations(&db_pool)
         .await
         .expect("failed to run gateway migrations");
+
+    #[cfg(feature = "agent")]
+    let agent_persona_store = std::sync::Arc::new(crate::agent_persona::AgentPersonaStore::new(
+        db_pool.clone(),
+    ));
+    #[cfg(feature = "agent")]
+    {
+        services = services.with_agent_persona_store(agent_persona_store.clone());
+    }
 
     // Migrate plugins data into unified skills system (idempotent, non-fatal).
     moltis_skills::migration::migrate_plugins_to_skills(&data_dir).await;
@@ -3618,6 +3627,9 @@ struct GonData {
     /// Central SPA route definitions so JS can read paths from gon
     /// instead of hardcoding them.
     routes: SpaRoutes,
+    /// Available agent personas for agent selector UI.
+    #[cfg(feature = "agent")]
+    agents: Vec<crate::agent_persona::AgentPersona>,
 }
 
 /// Sandbox runtime snapshot included in gon data so the settings page
@@ -3758,6 +3770,13 @@ async fn build_gon_data(gw: &GatewayState) -> GonData {
         }
     };
 
+    #[cfg(feature = "agent")]
+    let agents = if let Some(ref store) = gw.services.agent_persona_store {
+        store.list().await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     GonData {
         identity,
         port,
@@ -3773,6 +3792,8 @@ async fn build_gon_data(gw: &GatewayState) -> GonData {
         update: gw.inner.read().await.update.clone(),
         sandbox,
         routes: SPA_ROUTES.clone(),
+        #[cfg(feature = "agent")]
+        agents,
     }
 }
 

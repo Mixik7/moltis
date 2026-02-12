@@ -123,13 +123,13 @@ if (settingsBtn) {
 
 function updateAuthChrome(auth) {
 	if (logoutBtn) {
-		var showLogout = !!(auth && auth.authenticated && !auth.auth_disabled && (auth.has_password || auth.has_passkeys));
+		var showLogout = !!(auth?.authenticated && !auth.auth_disabled && (auth.has_password || auth.has_passkeys));
 		logoutBtn.style.display = showLogout ? "" : "none";
 	}
 
 	var banner = document.getElementById("authDisabledBanner");
 	if (banner) {
-		var showAuthDisabled = !!(auth && auth.auth_disabled && !auth.localhost_only);
+		var showAuthDisabled = !!(auth?.auth_disabled && !auth.localhost_only);
 		banner.style.display = showAuthDisabled ? "" : "none";
 	}
 }

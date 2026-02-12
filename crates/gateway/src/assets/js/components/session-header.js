@@ -4,7 +4,8 @@
 // Preact component reading sessionStore.activeSession.
 
 import { html } from "htm/preact";
-import { useCallback, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import * as gon from "../gon.js";
 import { sendRpc } from "../helpers.js";
 import { clearActiveSession, fetchSessions, switchSession } from "../sessions.js";
 import { sessionStore } from "../stores/session-store.js";
@@ -117,8 +118,50 @@ export function SessionHeader() {
 		});
 	}, [clearing]);
 
+	// ── Agent selector ──────────────────────────────────────
+	var agents = gon.get("agents") || [];
+	var currentAgentId = session?.agentId || "main";
+	var [agentId, setAgentId] = useState(currentAgentId);
+
+	useEffect(() => {
+		setAgentId(session?.agentId || "main");
+	}, [session?.agentId]);
+
+	var onAgentChange = useCallback(
+		(e) => {
+			var newId = e.target.value;
+			setAgentId(newId);
+			sendRpc("agents.set_session", {
+				session_key: currentKey,
+				agent_id: newId === "main" ? null : newId,
+			}).then((res) => {
+				if (res?.ok) fetchSessions();
+			});
+		},
+		[currentKey],
+	);
+
+	var _currentAgent = agents.find((a) => a.id === agentId);
+	var showAgentSelector = agents.length > 1;
+
 	return html`
 		<div class="flex items-center gap-2">
+			${
+				showAgentSelector &&
+				html`<select
+					class="chat-session-btn"
+					style="font-size:0.7rem;padding:2px 6px;cursor:pointer;"
+					value=${agentId}
+					onChange=${onAgentChange}
+					title="Switch agent persona"
+				>
+					${agents.map(
+						(a) => html`<option key=${a.id} value=${a.id}>
+							${a.emoji ? `${a.emoji} ` : ""}${a.name}
+						</option>`,
+					)}
+				</select>`
+			}
 			${
 				renaming
 					? html`<input

@@ -29,6 +29,7 @@ test.describe("Settings navigation", () => {
 
 	const settingsSections = [
 		{ id: "identity", heading: "Identity" },
+		{ id: "agents", heading: "Agents" },
 		{ id: "memory", heading: "Memory" },
 		{ id: "environment", heading: "Environment" },
 		{ id: "crons", heading: "Cron Jobs" },
@@ -192,6 +193,7 @@ test.describe("Settings navigation", () => {
 		const navItems = (await page.locator(".settings-nav-item").allTextContents()).map((text) => text.trim());
 		const expectedWithVoice = [
 			"Identity",
+			"Agents",
 			"Environment",
 			"Memory",
 			"Notifications",

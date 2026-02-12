@@ -1691,6 +1691,28 @@ pub trait OnboardingService: Send + Sync {
     async fn identity_get(&self) -> ServiceResult;
     async fn identity_update(&self, params: Value) -> ServiceResult;
     async fn identity_update_soul(&self, soul: Option<String>) -> ServiceResult;
+
+    /// Read identity for a specific agent. `"main"` delegates to [`identity_get`].
+    #[cfg(feature = "agent")]
+    async fn identity_get_for_agent(&self, _agent_id: &str) -> ServiceResult {
+        self.identity_get().await
+    }
+
+    /// Update identity fields for a specific agent. `"main"` delegates to [`identity_update`].
+    #[cfg(feature = "agent")]
+    async fn identity_update_for_agent(&self, _agent_id: &str, params: Value) -> ServiceResult {
+        self.identity_update(params).await
+    }
+
+    /// Update SOUL.md for a specific agent. `"main"` delegates to [`identity_update_soul`].
+    #[cfg(feature = "agent")]
+    async fn identity_update_soul_for_agent(
+        &self,
+        _agent_id: &str,
+        soul: Option<String>,
+    ) -> ServiceResult {
+        self.identity_update_soul(soul).await
+    }
 }
 
 pub struct NoopOnboardingService;
@@ -2062,6 +2084,9 @@ pub struct GatewayServices {
     pub provider_setup: Arc<dyn ProviderSetupService>,
     pub project: Arc<dyn ProjectService>,
     pub local_llm: Arc<dyn LocalLlmService>,
+    /// Agent persona store for multi-agent support.
+    #[cfg(feature = "agent")]
+    pub agent_persona_store: Option<Arc<crate::agent_persona::AgentPersonaStore>>,
     /// Optional channel outbound for sending replies back to channels.
     channel_outbound: Option<Arc<dyn ChannelOutbound>>,
     /// Optional session metadata for cross-service access (e.g. channel binding).
@@ -2125,10 +2150,21 @@ impl GatewayServices {
             provider_setup: Arc::new(NoopProviderSetupService),
             project: Arc::new(NoopProjectService),
             local_llm: Arc::new(NoopLocalLlmService),
+            #[cfg(feature = "agent")]
+            agent_persona_store: None,
             channel_outbound: None,
             session_metadata: None,
             session_store: None,
         }
+    }
+
+    #[cfg(feature = "agent")]
+    pub fn with_agent_persona_store(
+        mut self,
+        store: Arc<crate::agent_persona::AgentPersonaStore>,
+    ) -> Self {
+        self.agent_persona_store = Some(store);
+        self
     }
 
     pub fn with_local_llm(mut self, local_llm: Arc<dyn LocalLlmService>) -> Self {

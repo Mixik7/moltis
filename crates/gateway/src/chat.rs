@@ -685,10 +685,20 @@ struct PromptPersona {
 ///
 /// Both `run_with_tools` and `run_streaming` need the same persona data;
 /// this function avoids duplicating the merge logic.
-fn load_prompt_persona() -> PromptPersona {
+///
+/// When `agent_id` is `Some` and not `"main"`, identity and soul are loaded
+/// from the agent's workspace directory. USER.md is always loaded globally.
+fn load_prompt_persona(agent_id: Option<&str>) -> PromptPersona {
     let config = moltis_config::discover_and_load();
+    let aid = agent_id.unwrap_or("main");
+
     let mut identity = config.identity.clone();
-    if let Some(file_identity) = moltis_config::load_identity() {
+    let file_identity = if aid == "main" {
+        moltis_config::load_identity()
+    } else {
+        moltis_config::load_identity_for_agent(aid)
+    };
+    if let Some(file_identity) = file_identity {
         if file_identity.name.is_some() {
             identity.name = file_identity.name;
         }
@@ -702,6 +712,7 @@ fn load_prompt_persona() -> PromptPersona {
             identity.vibe = file_identity.vibe;
         }
     }
+    // USER.md always loads globally regardless of agent.
     let mut user = config.user.clone();
     if let Some(file_user) = moltis_config::load_user() {
         if file_user.name.is_some() {
@@ -711,12 +722,24 @@ fn load_prompt_persona() -> PromptPersona {
             user.timezone = file_user.timezone;
         }
     }
+
+    let soul_text = if aid == "main" {
+        moltis_config::load_soul()
+    } else {
+        moltis_config::load_soul_for_agent(aid)
+    };
+    let agents_text = if aid == "main" {
+        moltis_config::load_agents_md()
+    } else {
+        moltis_config::load_agents_md_for_agent(aid)
+    };
+
     PromptPersona {
         config,
         identity,
         user,
-        soul_text: moltis_config::load_soul(),
-        agents_text: moltis_config::load_agents_md(),
+        soul_text,
+        agents_text,
         tools_text: moltis_config::load_tools_md(),
     }
 }
@@ -3178,11 +3201,13 @@ impl ChatService for LiveChatService {
         let provider = self.resolve_provider(&session_key, &history).await?;
         let native_tools = provider.supports_tools();
 
-        // Load persona data.
-        let persona = load_prompt_persona();
-
         // Build runtime context.
         let session_entry = self.session_metadata.get(&session_key).await;
+
+        // Load persona data (agent-scoped when session has an agent_id).
+        let agent_id = session_entry.as_ref().and_then(|e| e.agent_id.as_deref());
+        let persona = load_prompt_persona(agent_id);
+
         let mut runtime_context = build_prompt_runtime_context(
             &self.state,
             &provider,
@@ -3307,11 +3332,13 @@ impl ChatService for LiveChatService {
         let provider = self.resolve_provider(&session_key, &history).await?;
         let native_tools = provider.supports_tools();
 
-        // Load persona data.
-        let persona = load_prompt_persona();
-
         // Build runtime context.
         let session_entry = self.session_metadata.get(&session_key).await;
+
+        // Load persona data (agent-scoped when session has an agent_id).
+        let agent_id = session_entry.as_ref().and_then(|e| e.agent_id.as_deref());
+        let persona = load_prompt_persona(agent_id);
+
         let mut runtime_context = build_prompt_runtime_context(
             &self.state,
             &provider,
@@ -3573,7 +3600,7 @@ async fn run_with_tools(
     mcp_disabled: bool,
     client_seq: Option<u64>,
 ) -> Option<(String, u32, u32, Option<String>)> {
-    let persona = load_prompt_persona();
+    let persona = load_prompt_persona(None);
 
     let native_tools = provider.supports_tools();
 
@@ -4235,7 +4262,7 @@ async fn run_streaming(
     session_store: Option<&Arc<SessionStore>>,
     client_seq: Option<u64>,
 ) -> Option<(String, u32, u32, Option<String>)> {
-    let persona = load_prompt_persona();
+    let persona = load_prompt_persona(None);
 
     let system_prompt = build_system_prompt_minimal_runtime(
         project_context,

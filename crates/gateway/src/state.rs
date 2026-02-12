@@ -289,6 +289,9 @@ pub struct GatewayInner {
     /// Per-session buffer for channel status messages (tool use, model selection).
     /// Drained when the final response is delivered to the channel.
     pub channel_status_log: HashMap<String, Vec<String>>,
+    /// Per-agent memory managers, lazily created. "main" uses the root memory_manager.
+    #[cfg(feature = "agent")]
+    pub agent_memory_managers: HashMap<String, Arc<moltis_memory::manager::MemoryManager>>,
 }
 
 impl GatewayInner {
@@ -319,6 +322,8 @@ impl GatewayInner {
             llm_providers: None,
             cached_location: moltis_config::load_user().and_then(|u| u.location),
             channel_status_log: HashMap::new(),
+            #[cfg(feature = "agent")]
+            agent_memory_managers: HashMap::new(),
         }
     }
 
@@ -486,6 +491,63 @@ impl GatewayState {
             return 0;
         }
         self.tts_phrase_counter.fetch_add(1, Ordering::Relaxed) % len
+    }
+
+    /// Get the memory manager for an agent. Returns the root memory_manager for
+    /// "main" (or None agent), and lazily creates per-agent managers for others.
+    #[cfg(feature = "agent")]
+    pub async fn memory_for_agent(
+        &self,
+        agent_id: Option<&str>,
+    ) -> Option<Arc<moltis_memory::manager::MemoryManager>> {
+        let id = agent_id.unwrap_or("main");
+        if id == "main" {
+            return self.memory_manager.clone();
+        }
+        // Check cache first.
+        {
+            let inner = self.inner.read().await;
+            if let Some(mgr) = inner.agent_memory_managers.get(id) {
+                return Some(Arc::clone(mgr));
+            }
+        }
+        // Lazily create a per-agent keyword-only memory manager.
+        let agent_dir = moltis_config::agent_data_dir(id);
+        if let Err(e) = std::fs::create_dir_all(&agent_dir) {
+            tracing::warn!(agent_id = id, error = %e, "failed to create agent data dir");
+            return None;
+        }
+        let db_path = agent_dir.join("memory.db");
+        let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+        let pool = match sqlx::SqlitePool::connect(&db_url).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(agent_id = id, error = %e, "failed to open agent memory.db");
+                return None;
+            },
+        };
+        if let Err(e) = moltis_memory::schema::run_migrations(&pool).await {
+            tracing::warn!(agent_id = id, error = %e, "failed to run agent memory migrations");
+            return None;
+        }
+        let memory_file = agent_dir.join("MEMORY.md");
+        let memory_sub = agent_dir.join("memory");
+        let config = moltis_memory::config::MemoryConfig {
+            db_path: db_path.to_string_lossy().into(),
+            memory_dirs: vec![memory_file, memory_sub],
+            ..Default::default()
+        };
+        let store = Box::new(moltis_memory::store_sqlite::SqliteMemoryStore::new(pool));
+        let mgr = Arc::new(moltis_memory::manager::MemoryManager::keyword_only(
+            config, store,
+        ));
+        {
+            let mut inner = self.inner.write().await;
+            inner
+                .agent_memory_managers
+                .insert(id.to_string(), Arc::clone(&mgr));
+        }
+        Some(mgr)
     }
 
     /// Get the active chat service (override or default).

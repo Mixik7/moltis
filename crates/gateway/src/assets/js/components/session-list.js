@@ -5,11 +5,19 @@
 
 import { html } from "htm/preact";
 import { useEffect, useRef } from "preact/hooks";
+import * as gon from "../gon.js";
 import { makeBranchIcon, makeChatIcon, makeCronIcon, makeProjectIcon, makeTelegramIcon } from "../icons.js";
 import { currentPrefix, navigate, sessionPath } from "../router.js";
 import { switchSession } from "../sessions.js";
 import { projectStore } from "../stores/project-store.js";
 import { sessionStore } from "../stores/session-store.js";
+
+// ── Agent emoji lookup ──────────────────────────────────────
+function agentEmoji(agentId) {
+	var agents = gon.get("agents") || [];
+	var agent = agents.find((a) => a.id === agentId);
+	return agent?.emoji || "\u{1F916}";
+}
 
 // ── Braille spinner ─────────────────────────────────────────
 var spinnerFrames = [
@@ -162,6 +170,13 @@ function SessionItem({ session, activeKey, depth, keyMap }) {
 			<div class="session-info">
 				<div class="session-label">
 					<${SessionIcon} session=${session} isBranch=${isBranch} />
+					${
+						session.agentId &&
+						session.agentId !== "main" &&
+						html`
+						<span class="text-xs" title=${`Agent: ${session.agentId}`} style="opacity:0.7;">${agentEmoji(session.agentId)}</span>
+					`
+					}
 					<span data-label-text>${session.label || session.key}</span>
 					${
 						ts > 0 &&

@@ -54,4 +54,31 @@ impl OnboardingService for GatewayOnboardingService {
             .identity_update_soul(soul)
             .map_err(|e| e.to_string())
     }
+
+    #[cfg(feature = "agent")]
+    async fn identity_get_for_agent(&self, agent_id: &str) -> ServiceResult {
+        Ok(serde_json::to_value(self.inner.identity_get_for_agent(agent_id)).unwrap_or_default())
+    }
+
+    #[cfg(feature = "agent")]
+    async fn identity_update_for_agent(
+        &self,
+        agent_id: &str,
+        params: serde_json::Value,
+    ) -> ServiceResult {
+        self.inner
+            .identity_update_for_agent(agent_id, params)
+            .map_err(|e| e.to_string())
+    }
+
+    #[cfg(feature = "agent")]
+    async fn identity_update_soul_for_agent(
+        &self,
+        agent_id: &str,
+        soul: Option<String>,
+    ) -> ServiceResult {
+        self.inner
+            .identity_update_soul_for_agent(agent_id, soul)
+            .map_err(|e| e.to_string())
+    }
 }

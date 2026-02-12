@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Multi-agent personas**: Create named agent personas with their own identity,
+  emoji, creature, vibe, and soul/system prompt. Each agent gets its own
+  workspace directory and memory store under `data_dir()/agents/<id>/`.
+- **Settings > Agents page**: New settings section for managing agent personas
+  with create, edit, and delete operations.
+- **Session agent selector**: Sessions can be assigned to a specific agent via
+  a dropdown in the session header. The agent's identity and soul are used in
+  the system prompt for that session.
+- **Agent emoji badges**: Sessions assigned to non-default agents show the
+  agent's emoji in the session list sidebar.
+- **Telegram /agent command**: List available agents or switch the current
+  session's agent from Telegram channels.
+- **Per-agent identity RPC methods**: `agents.identity.get`,
+  `agents.identity.update`, and `agents.identity.update_soul` for managing
+  agent-specific identity and soul files.
+
 ## [0.8.8] - 2026-02-11
 
 ### Changed

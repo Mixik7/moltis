@@ -54,6 +54,9 @@ cargo install moltis --git https://github.com/moltis-org/moltis
   management, and per-session run serialization to prevent history corruption
 - **Agent-level timeout** — configurable wall-clock timeout for agent runs
   (default 600s) to prevent runaway executions
+- **Multi-agent personas** — create named agent personas with their own
+  identity, memory, and system prompt; assign agents to sessions via the UI
+  or Telegram `/agent` command
 - **Sub-agent delegation** — `spawn_agent` tool lets the LLM delegate tasks to
   child agent loops with nesting depth limits and tool filtering
 - **Message queue modes** — `followup` (replay each queued message as a

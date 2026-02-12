@@ -78,7 +78,9 @@ openssl     = { workspace = true }
 urlencoding = { workspace = true }
 
 [features]
+agent = []
 default = [
+  "agent",
   "file-watcher",
   "local-llm",
   "metrics",

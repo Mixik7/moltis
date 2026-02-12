@@ -272,6 +272,93 @@ impl LiveOnboardingService {
         id.soul = moltis_config::load_soul();
         id
     }
+
+    /// Read identity for a specific agent. `"main"` delegates to [`identity_get`].
+    pub fn identity_get_for_agent(&self, agent_id: &str) -> moltis_config::ResolvedIdentity {
+        if agent_id == "main" {
+            return self.identity_get();
+        }
+        let mut id = moltis_config::ResolvedIdentity::default();
+        if let Some(file_identity) = moltis_config::load_identity_for_agent(agent_id) {
+            if let Some(name) = file_identity.name {
+                id.name = name;
+            }
+            id.emoji = file_identity.emoji;
+            id.creature = file_identity.creature;
+            id.vibe = file_identity.vibe;
+        }
+        // USER.md is always global.
+        if let Some(file_user) = moltis_config::load_user() {
+            id.user_name = file_user.name;
+        }
+        id.soul = moltis_config::load_soul_for_agent(agent_id);
+        id
+    }
+
+    /// Update identity fields for a specific agent. `"main"` delegates to [`identity_update`].
+    pub fn identity_update_for_agent(
+        &self,
+        agent_id: &str,
+        params: Value,
+    ) -> anyhow::Result<Value> {
+        if agent_id == "main" {
+            return self.identity_update(params);
+        }
+
+        let mut identity = moltis_config::load_identity_for_agent(agent_id).unwrap_or_default();
+
+        /// Extract an optional non-empty string from JSON, mapping `""` to `None`.
+        fn str_field(params: &Value, key: &str) -> Option<Option<String>> {
+            params
+                .get(key)
+                .and_then(|v| v.as_str())
+                .map(|v| (!v.is_empty()).then(|| v.to_string()))
+        }
+
+        if let Some(v) = str_field(&params, "name") {
+            identity.name = v;
+        }
+        if let Some(v) = str_field(&params, "emoji") {
+            identity.emoji = v;
+        }
+        if let Some(v) = str_field(&params, "creature") {
+            identity.creature = v;
+        }
+        if let Some(v) = str_field(&params, "vibe") {
+            identity.vibe = v;
+        }
+        if let Some(v) = params.get("soul") {
+            let soul = if v.is_null() {
+                None
+            } else {
+                v.as_str().map(|s| s.to_string())
+            };
+            moltis_config::save_soul_for_agent(agent_id, soul.as_deref())?;
+        }
+
+        moltis_config::save_identity_for_agent(agent_id, &identity)?;
+
+        Ok(json!({
+            "name": identity.name,
+            "emoji": identity.emoji,
+            "creature": identity.creature,
+            "vibe": identity.vibe,
+            "soul": moltis_config::load_soul_for_agent(agent_id),
+        }))
+    }
+
+    /// Update SOUL.md for a specific agent. `"main"` delegates to [`identity_update_soul`].
+    pub fn identity_update_soul_for_agent(
+        &self,
+        agent_id: &str,
+        soul: Option<String>,
+    ) -> anyhow::Result<Value> {
+        if agent_id == "main" {
+            return self.identity_update_soul(soul);
+        }
+        moltis_config::save_soul_for_agent(agent_id, soul.as_deref())?;
+        Ok(json!({}))
+    }
 }
 
 fn merge_identity(dst: &mut AgentIdentity, src: &AgentIdentity) {
