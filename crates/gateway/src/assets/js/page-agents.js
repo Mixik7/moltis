@@ -45,11 +45,20 @@ function AgentForm({ agent, onSave, onCancel }) {
 	// Load soul: for edits fetch the agent's soul, for new agents fetch main's soul as default
 	useEffect(() => {
 		var agentId = isEdit ? agent.id : "main";
-		sendRpc("agents.identity.get", { agent_id: agentId }).then((res) => {
-			if (res?.ok && res.payload?.soul) {
-				setSoul(res.payload.soul);
-			}
-		});
+		var attempts = 0;
+		function load() {
+			sendRpc("agents.identity.get", { agent_id: agentId }).then((res) => {
+				if (res?.error?.message === "WebSocket not connected" && attempts < 30) {
+					attempts += 1;
+					window.setTimeout(load, 200);
+					return;
+				}
+				if (res?.ok && res.payload?.soul) {
+					setSoul(res.payload.soul);
+				}
+			});
+		}
+		load();
 	}, [isEdit, agent?.id]);
 
 	function buildParams() {
