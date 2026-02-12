@@ -37,7 +37,6 @@ function AgentForm({ agent, onSave, onCancel }) {
 	var [emoji, setEmoji] = useState(agent?.emoji || "");
 	var [creature, setCreature] = useState(agent?.creature || "");
 	var [vibe, setVibe] = useState(agent?.vibe || "");
-	var [description, setDescription] = useState(agent?.description || "");
 	var [soul, setSoul] = useState("");
 	var [saving, setSaving] = useState(false);
 	var [error, setError] = useState(null);
@@ -67,7 +66,6 @@ function AgentForm({ agent, onSave, onCancel }) {
 			emoji: emoji.trim() || null,
 			creature: creature.trim() || null,
 			vibe: vibe.trim() || null,
-			description: description.trim() || null,
 		};
 		base.id = isEdit ? agent.id : id.trim();
 		return base;
@@ -174,17 +172,6 @@ function AgentForm({ agent, onSave, onCancel }) {
 			</label>
 
 			<label class="flex flex-col gap-1">
-				<span class="text-xs text-[var(--muted)]">Description</span>
-				<input
-					type="text"
-					class="provider-key-input"
-					value=${description}
-					onInput=${(e) => setDescription(e.target.value)}
-					placeholder="Short description of this agent"
-				/>
-			</label>
-
-			<label class="flex flex-col gap-1">
 				<span class="text-xs text-[var(--muted)]">Soul (system prompt personality)</span>
 				<textarea
 					class="provider-key-input"
@@ -245,12 +232,6 @@ function AgentCard({ agent, onEdit, onDelete }) {
 					}
 				</div>
 			</div>
-			${
-				agent.description &&
-				html`
-				<div class="text-xs text-[var(--muted)] mt-1">${agent.description}</div>
-			`
-			}
 			${
 				(agent.creature || agent.vibe) &&
 				html`
