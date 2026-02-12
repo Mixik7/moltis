@@ -42,10 +42,10 @@ function AgentForm({ agent, onSave, onCancel }) {
 	var [saving, setSaving] = useState(false);
 	var [error, setError] = useState(null);
 
-	// Load soul for existing agent
+	// Load soul: for edits fetch the agent's soul, for new agents fetch main's soul as default
 	useEffect(() => {
-		if (!isEdit) return;
-		sendRpc("agents.identity.get", { agent_id: agent.id }).then((res) => {
+		var agentId = isEdit ? agent.id : "main";
+		sendRpc("agents.identity.get", { agent_id: agentId }).then((res) => {
 			if (res?.ok && res.payload?.soul) {
 				setSoul(res.payload.soul);
 			}
