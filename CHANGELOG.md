@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.20] - 2026-02-13
+
+### Added
+
+- **Dynamic OpenAI model loading**: OpenAI provider now fetches available
+  models from the live `/v1/models` endpoint instead of using a hardcoded
+  list, ensuring new models are available without code changes.
+- **Telegram delivery logging**: Added info-level logs for inbound message
+  receipt and outbound reply delivery in the Telegram channel handler.
+
+### Changed
+
+- **Deploy template auto-versioning**: Deploy templates (DigitalOcean,
+  Render, Fly.io) now pin explicit image versions and are automatically
+  updated by the release workflow after Docker images are pushed.
+- **Distro-compatible host package provisioning**: Sandbox host package
+  installation now detects the Linux distribution and uses the appropriate
+  package manager instead of assuming apt.
+
+### Fixed
+
+- **Anthropic onboarding model selection**: Stabilized model picker behavior
+  during Anthropic provider onboarding to prevent selection resets.
+- **Voice step visibility in auth-gated onboarding**: The voice
+  configuration step now stays visible when authentication is enabled during
+  the onboarding flow.
+- **Onboarding provider activation without restart** (from v0.8.15): Newly
+  configured providers activate immediately without requiring a gateway
+  restart.
+
+### Security
+
+- **Telegram bot token masking**: Bot tokens are now masked in the
+  onboarding UI and channels settings page to prevent accidental exposure.
+
 ## [0.8.14] - 2026-02-11
 
 ### Security
