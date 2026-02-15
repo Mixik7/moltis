@@ -303,6 +303,15 @@ pass <code>session_id</code> explicitly:</p>
 { "action": "close" }
 </code></pre>
 <p>This prevents pool exhaustion from LLMs that forget to pass the session_id.</p>
+<h3 id="browser-selection"><a class="header" href="#browser-selection">Browser selection</a></h3>
+<p>You can ask for a specific browser at runtime (host mode):</p>
+<pre><code class="language-json">{ "action": "navigate", "url": "https://example.com", "browser": "brave" }
+</code></pre>
+<p>Supported values: <code>auto</code>, <code>chrome</code>, <code>chromium</code>, <code>edge</code>, <code>brave</code>, <code>opera</code>,
+<code>vivaldi</code>, <code>arc</code>.</p>
+<p><code>auto</code> (default) picks the first detected installed browser. If none are
+installed, Moltis will attempt a best-effort auto-install, then retry
+detection.</p>
 <h3 id="workflow-example"><a class="header" href="#workflow-example">Workflow Example</a></h3>
 <pre><code class="language-json">// 1. Navigate to a page
 {
