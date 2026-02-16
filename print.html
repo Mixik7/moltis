@@ -1256,6 +1256,12 @@ backend = "builtin"
 # Embedding provider: "local", "ollama", "openai", "custom", or auto-detect
 provider = "local"
 
+# Disable RAG embeddings and force keyword-only search
+disable_rag = false
+
+# Embedding API base URL (host, /v1, or full /embeddings endpoint)
+base_url = "http://localhost:11434/v1"
+
 # Citation mode: "on", "off", or "auto"
 citations = "auto"
 
@@ -5602,10 +5608,16 @@ tools grouped by origin.</p>
 and this project adheres to <a href="https://semver.org/spec/v2.0.0.html">Semantic Versioning</a>.</p>
 <h2 id="unreleased"><a class="header" href="#unreleased">[Unreleased]</a></h2>
 <h3 id="added"><a class="header" href="#added">Added</a></h3>
+<ul>
+<li>Memory config: add <code>memory.disable_rag</code> to force keyword-only memory search while keeping markdown indexing and memory tools enabled</li>
+</ul>
 <h3 id="changed"><a class="header" href="#changed">Changed</a></h3>
 <h3 id="deprecated"><a class="header" href="#deprecated">Deprecated</a></h3>
 <h3 id="removed"><a class="header" href="#removed">Removed</a></h3>
 <h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
+<ul>
+<li>Memory embeddings endpoint composition now avoids duplicated path segments like <code>/v1/v1/embeddings</code> and accepts base URLs ending in host-only, <code>/v1</code>, versioned paths (for example <code>/v4</code>), or <code>/embeddings</code></li>
+</ul>
 <h3 id="security-2"><a class="header" href="#security-2">Security</a></h3>
 <h2 id="0835---2026-02-15"><a class="header" href="#0835---2026-02-15">[0.8.35] - 2026-02-15</a></h2>
 <h3 id="added-1"><a class="header" href="#added-1">Added</a></h3>
