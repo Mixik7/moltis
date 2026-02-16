@@ -249,6 +249,16 @@ packages = [
 <p>When you modify the packages list and restart, Moltis automatically rebuilds the sandbox image with a new tag.</p>
 </div>
 </div>
+<h2 id="chat-message-queue"><a class="header" href="#chat-message-queue">Chat Message Queue</a></h2>
+<p>When a new message arrives while an agent run is already active, Moltis can either
+replay queued messages one-by-one or merge them into a single follow-up message.</p>
+<pre><code class="language-toml">[chat]
+message_queue_mode = "followup"  # Default: one-by-one replay
+
+# Options:
+#   "followup" - Queue each message and run them sequentially
+#   "collect"  - Merge queued text and run once after the active run
+</code></pre>
 <h2 id="memory-system"><a class="header" href="#memory-system">Memory System</a></h2>
 <p>Long-term memory uses embeddings for semantic search:</p>
 <pre><code class="language-toml">[memory]

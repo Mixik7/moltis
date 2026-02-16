@@ -204,6 +204,11 @@ CIDR ranges from SSRF blocking, enabling Docker inter-container networking.</li>
 <h3 id="removed"><a class="header" href="#removed">Removed</a></h3>
 <h3 id="fixed"><a class="header" href="#fixed">Fixed</a></h3>
 <ul>
+<li><strong>Telegram queued replies</strong>: route channel reply targets per queued message so
+<code>chat.message_queue_mode = "followup"</code> delivers replies one-by-one instead of
+collapsing queued channel replies into a single batch delivery.</li>
+<li><strong>Queue mode default</strong>: make one-by-one replay (<code>followup</code>) explicit as the
+<code>ChatConfig</code> default, with config-level tests to prevent regressions.</li>
 <li>MCP OAuth dynamic registration now uses the exact loopback callback URI selected for the current auth flow, improving compatibility with providers that require strict redirect URI matching (for example Linear).</li>
 <li>MCP manager now applies <code>[mcp.servers.&lt;name&gt;.oauth]</code> override settings when building the OAuth provider for SSE servers.</li>
 <li>Streamable HTTP MCP transport now persists and reuses <code>Mcp-Session-Id</code>, parses <code>text/event-stream</code> responses, and sends best-effort <code>DELETE</code> on shutdown to close server sessions.</li>
