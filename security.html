@@ -364,6 +364,14 @@ WebSocket hijacking (CSWSH). Connections from untrusted origins are rejected.</p
 <p>The <code>web_fetch</code> tool resolves DNS and blocks requests to private IP ranges
 (loopback, RFC 1918, link-local, CGNAT). This prevents server-side request
 forgery attacks.</p>
+<p>To allow access to trusted private networks (e.g. Docker sibling containers),
+add their CIDR ranges to <code>ssrf_allowlist</code>:</p>
+<pre><code class="language-toml">[tools.web.fetch]
+ssrf_allowlist = ["172.22.0.0/16"]
+</code></pre>
+<p><strong>Warning:</strong> Only add networks you trust. The allowlist bypasses SSRF protection
+for the listed ranges. Never add cloud metadata ranges (<code>169.254.169.254/32</code>)
+unless you understand the risk.</p>
 <h2 id="authentication"><a class="header" href="#authentication">Authentication</a></h2>
 <p>Moltis uses a unified auth gate that applies a single <code>check_auth()</code>
 function to every request. This prevents split-brain bugs where different
