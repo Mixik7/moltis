@@ -210,6 +210,11 @@ directly via <code>.claude-plugin/marketplace.json</code> <code>plugins[].skills
 (for example <code>anthropics/skills</code>), including loading <code>SKILL.md</code> entries under
 <code>skills/*</code> and exposing them through the existing plugin-skill workflow.</p>
 </li>
+<li>
+<p>Web search no longer falls back to DuckDuckGo by default when search API keys
+are missing, avoiding repeated CAPTCHA failures; fallback is now opt-in via
+<code>tools.web.search.duckduckgo_fallback = true</code>.</p>
+</li>
 </ul>
 <h3 id="security"><a class="header" href="#security">Security</a></h3>
 <h2 id="090---2026-02-17"><a class="header" href="#090---2026-02-17">[0.9.0] - 2026-02-17</a></h2>

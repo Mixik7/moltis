@@ -621,6 +621,27 @@ packages = [
 <p>When you modify the packages list and restart, Moltis automatically rebuilds the sandbox image with a new tag.</p>
 </div>
 </div>
+<h2 id="web-search"><a class="header" href="#web-search">Web Search</a></h2>
+<p>Configure the built-in <code>web_search</code> tool:</p>
+<pre><code class="language-toml">[tools.web.search]
+enabled = true
+provider = "brave"               # "brave" or "perplexity"
+max_results = 5                  # 1-10
+timeout_seconds = 30
+cache_ttl_minutes = 15
+duckduckgo_fallback = false      # Default: do not use DuckDuckGo fallback
+# api_key = "..."                # Brave key, or use BRAVE_API_KEY
+
+[tools.web.search.perplexity]
+# api_key = "..."                # Or use PERPLEXITY_API_KEY / OPENROUTER_API_KEY
+# base_url = "..."               # Optional override
+# model = "perplexity/sonar-pro" # Optional override
+</code></pre>
+<p>If no search API key is configured:</p>
+<ul>
+<li>with <code>duckduckgo_fallback = false</code> (default), Moltis returns a clear hint to set <code>BRAVE_API_KEY</code> or <code>PERPLEXITY_API_KEY</code></li>
+<li>with <code>duckduckgo_fallback = true</code>, Moltis attempts DuckDuckGo HTML search, which may hit CAPTCHA/rate limits</li>
+</ul>
 <h2 id="chat-message-queue"><a class="header" href="#chat-message-queue">Chat Message Queue</a></h2>
 <p>When a new message arrives while an agent run is already active, Moltis can either
 replay queued messages one-by-one or merge them into a single follow-up message.</p>
@@ -5687,6 +5708,11 @@ can reliably reason about the user’s current date.</p>
 directly via <code>.claude-plugin/marketplace.json</code> <code>plugins[].skills[]</code> paths
 (for example <code>anthropics/skills</code>), including loading <code>SKILL.md</code> entries under
 <code>skills/*</code> and exposing them through the existing plugin-skill workflow.</p>
+</li>
+<li>
+<p>Web search no longer falls back to DuckDuckGo by default when search API keys
+are missing, avoiding repeated CAPTCHA failures; fallback is now opt-in via
+<code>tools.web.search.duckduckgo_fallback = true</code>.</p>
 </li>
 </ul>
 <h3 id="security-2"><a class="header" href="#security-2">Security</a></h3>
