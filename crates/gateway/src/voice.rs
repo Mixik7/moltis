@@ -99,6 +99,7 @@ impl LiveTtsService {
             },
             openai: moltis_voice::OpenAiTtsConfig {
                 api_key: cfg.voice.tts.openai.api_key.clone(),
+                base_url: cfg.voice.tts.openai.base_url.clone(),
                 voice: cfg.voice.tts.openai.voice.clone(),
                 model: cfg.voice.tts.openai.model.clone(),
                 speed: None,
@@ -142,6 +143,7 @@ impl LiveTtsService {
                     Some(key.clone()),
                     config.openai.voice.clone(),
                     config.openai.model.clone(),
+                    config.openai.base_url.clone(),
                 )) as Box<dyn TtsProvider + Send + Sync>
             }),
             TtsProviderId::Google => config.google.api_key.as_ref().map(|_| {

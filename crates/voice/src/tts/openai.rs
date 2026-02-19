@@ -38,6 +38,7 @@ const VOICES: &[(&str, &str)] = &[
 pub struct OpenAiTts {
     client: Client,
     api_key: Option<Secret<String>>,
+    base_url: String,
     default_voice: String,
     default_model: String,
 }
@@ -46,6 +47,7 @@ impl std::fmt::Debug for OpenAiTts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OpenAiTts")
             .field("api_key", &"[REDACTED]")
+            .field("base_url", &self.base_url)
             .field("default_voice", &self.default_voice)
             .field("default_model", &self.default_model)
             .finish()
@@ -65,21 +67,24 @@ impl OpenAiTts {
         Self {
             client: Client::new(),
             api_key,
+            base_url: API_BASE.into(),
             default_voice: DEFAULT_VOICE.into(),
             default_model: DEFAULT_MODEL.into(),
         }
     }
 
-    /// Create with custom default voice and model.
+    /// Create with custom default voice, model, and optional base URL.
     #[must_use]
     pub fn with_defaults(
         api_key: Option<Secret<String>>,
         voice: Option<String>,
         model: Option<String>,
+        base_url: Option<String>,
     ) -> Self {
         Self {
             client: Client::new(),
             api_key,
+            base_url: base_url.unwrap_or_else(|| API_BASE.into()),
             default_voice: voice.unwrap_or_else(|| DEFAULT_VOICE.into()),
             default_model: model.unwrap_or_else(|| DEFAULT_MODEL.into()),
         }
@@ -144,7 +149,7 @@ impl TtsProvider for OpenAiTts {
 
         let response = self
             .client
-            .post(format!("{API_BASE}/audio/speech"))
+            .post(format!("{}/audio/speech", self.base_url))
             .header(
                 "Authorization",
                 format!("Bearer {}", api_key.expose_secret()),
@@ -248,9 +253,22 @@ mod tests {
             Some(Secret::new("key".into())),
             Some("nova".into()),
             Some("tts-1-hd".into()),
+            None,
         );
         assert_eq!(provider.default_voice, "nova");
         assert_eq!(provider.default_model, "tts-1-hd");
+        assert_eq!(provider.base_url, "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn test_with_custom_base_url() {
+        let provider = OpenAiTts::with_defaults(
+            Some(Secret::new("key".into())),
+            None,
+            None,
+            Some("https://api.electronhub.ai/v1".into()),
+        );
+        assert_eq!(provider.base_url, "https://api.electronhub.ai/v1");
     }
 
     #[test]
