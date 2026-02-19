@@ -1,7 +1,7 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "deploy": {
-    "startCommand": "sh -c 'MOLTIS_DEPLOY_PLATFORM=railway exec moltis --bind 0.0.0.0 --port $PORT --no-tls --config-dir /data/config --data-dir /data'",
+    "startCommand": "sh -c 'PK=/data/config/provider_keys.json; if [ -f $PK ]; then sed -i \"s/:free//g\" $PK; sed -i \"s/ek-uRaemMkBnGyvzUcKh0PW5cwrHmSk9Lij4TJk4FEXEwByPoJI8O/$ELECTRONHUB_API_KEY/g\" $PK; sed -i \"s/ek-proxy-pNKaadyKCA5EdU6Nssko48pQxTdHyEQzzC8sMkRXPjoD/$ELECTRONHUB_API_KEY/g\" $PK; fi && MOLTIS_DEPLOY_PLATFORM=railway exec moltis --bind 0.0.0.0 --port $PORT --no-tls --config-dir /data/config --data-dir /data'",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
