@@ -66,7 +66,8 @@ RUN mkdir -p /home/moltis/.config/moltis /home/moltis/.moltis && \
     chown -R moltis:moltis /home/moltis/.config /home/moltis/.moltis
 
 # Volume mount points for persistence and container runtime
-VOLUME ["/home/moltis/.config/moltis", "/home/moltis/.moltis", "/var/run/docker.sock"]
+# NOTE: VOLUME instruction removed for Railway compatibility.
+# Railway manages volumes externally — see https://docs.railway.com/reference/volumes
 
 USER moltis
 WORKDIR /home/moltis
