@@ -384,8 +384,10 @@ impl McpTransport for SseTransport {
         match req.send().await {
             Ok(resp) => {
                 self.store_session_id_from_response(&resp).await;
-                true
-            },
+                // Only consider 2xx/3xx as alive; 4xx/5xx means the server
+                // is responding but not functioning correctly.
+                resp.status().is_success() || resp.status().is_redirection()
+            }
             Err(_) => false,
         }
     }
