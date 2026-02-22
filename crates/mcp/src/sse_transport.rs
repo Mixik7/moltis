@@ -384,10 +384,14 @@ impl McpTransport for SseTransport {
         match req.send().await {
             Ok(resp) => {
                 self.store_session_id_from_response(&resp).await;
-                // Only consider 2xx/3xx as alive; 4xx/5xx means the server
-                // is responding but not functioning correctly.
-                resp.status().is_success() || resp.status().is_redirection()
+                // Any HTTP response (even 4xx) means the server is reachable.
+                // Streamable HTTP endpoints return 400/405 on GET because they
+                // only accept POST — that still proves the server is alive.
+                // Only 5xx indicates a malfunctioning server worth restarting.
+                let status = resp.status();
+                !status.is_server_error()
             }
+            // Network error (timeout, connection refused, DNS failure) = truly dead
             Err(_) => false,
         }
     }
