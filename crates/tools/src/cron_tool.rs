@@ -114,8 +114,19 @@ fn normalize_schedule_value(schedule: &mut Value) -> Result<()> {
         Value::String(expr) => {
             let expr = expr.trim();
             if expr.is_empty() {
-                bail!("schedule cron expression cannot be empty");
+                bail!("schedule string cannot be empty");
             }
+            // Try duration first (e.g. "3m", "30s", "2h", "1d") → Every
+            if let Ok(ms) = parse_duration_ms(expr) {
+                *schedule = json!({ "kind": "every", "every_ms": ms });
+                return Ok(());
+            }
+            // Try ISO 8601 timestamp (e.g. "2026-03-01T09:00:00Z") → At
+            if let Ok(ms) = parse_absolute_time_ms(expr) {
+                *schedule = json!({ "kind": "at", "at_ms": ms });
+                return Ok(());
+            }
+            // Fallback: treat as cron expression (e.g. "0 9 * * *")
             *schedule = json!({ "kind": "cron", "expr": expr });
             Ok(())
         },
@@ -1066,5 +1077,109 @@ mod tests {
 
         let err = result.unwrap_err().to_string();
         assert!(err.contains("ambiguous fields"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_add_interprets_duration_string_as_every() {
+        let tool = make_tool();
+        let add_result = tool
+            .execute(json!({
+                "action": "add",
+                "job": {
+                    "name": "every 3 minutes",
+                    "schedule": "3m",
+                    "payload": { "kind": "agentTurn", "message": "check status" },
+                    "sessionTarget": "isolated"
+                }
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(add_result["schedule"]["kind"], "every");
+        assert_eq!(add_result["schedule"]["every_ms"], 180_000);
+    }
+
+    #[tokio::test]
+    async fn test_add_interprets_seconds_duration_string() {
+        let tool = make_tool();
+        let add_result = tool
+            .execute(json!({
+                "action": "add",
+                "job": {
+                    "name": "every 30 seconds",
+                    "schedule": "30s",
+                    "payload": { "kind": "agentTurn", "message": "heartbeat" },
+                    "sessionTarget": "isolated"
+                }
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(add_result["schedule"]["kind"], "every");
+        assert_eq!(add_result["schedule"]["every_ms"], 30_000);
+    }
+
+    #[tokio::test]
+    async fn test_add_interprets_iso_timestamp_string_as_at() {
+        let tool = make_tool();
+        let add_result = tool
+            .execute(json!({
+                "action": "add",
+                "job": {
+                    "name": "one-shot timer",
+                    "schedule": "2026-03-01T09:00:00Z",
+                    "payload": { "kind": "agentTurn", "message": "remind me" },
+                    "sessionTarget": "isolated"
+                }
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(add_result["schedule"]["kind"], "at");
+        assert!(add_result["schedule"]["at_ms"].as_u64().unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_add_still_accepts_cron_string_with_spaces() {
+        let tool = make_tool();
+        let add_result = tool
+            .execute(json!({
+                "action": "add",
+                "job": {
+                    "name": "daily at 9am",
+                    "schedule": "0 9 * * *",
+                    "payload": { "kind": "agentTurn", "message": "morning routine" },
+                    "sessionTarget": "isolated"
+                }
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(add_result["schedule"]["kind"], "cron");
+        assert_eq!(add_result["schedule"]["expr"], "0 9 * * *");
+    }
+
+    #[test]
+    fn test_normalize_schedule_value_duration_string() {
+        let mut val = json!("5m");
+        normalize_schedule_value(&mut val).unwrap();
+        assert_eq!(val["kind"], "every");
+        assert_eq!(val["every_ms"], 300_000);
+    }
+
+    #[test]
+    fn test_normalize_schedule_value_iso_string() {
+        let mut val = json!("2026-01-12T18:00:00Z");
+        normalize_schedule_value(&mut val).unwrap();
+        assert_eq!(val["kind"], "at");
+        assert!(val["at_ms"].as_u64().unwrap() > 0);
+    }
+
+    #[test]
+    fn test_normalize_schedule_value_cron_string_fallback() {
+        let mut val = json!("*/15 * * * *");
+        normalize_schedule_value(&mut val).unwrap();
+        assert_eq!(val["kind"], "cron");
+        assert_eq!(val["expr"], "*/15 * * * *");
     }
 }
