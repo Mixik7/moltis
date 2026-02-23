@@ -305,11 +305,57 @@ impl McpTransport for SseTransport {
         params: Option<serde_json::Value>,
     ) -> Result<JsonRpcResponse> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        // Keep a clone for potential retry after stale-session re-init
+        let params_backup = params.clone();
         let req = JsonRpcRequest::new(id, method, params);
 
         debug!(method = %method, id = %id, url = %self.url, "SSE client -> server");
 
-        let http_resp = self.send_with_auth_retry(method, &req).await?;
+        let mut http_resp = self.send_with_auth_retry(method, &req).await?;
+
+        // MCP spec: when 404 is received with a session ID, the client MUST
+        // clear the stale session and re-initialize with a fresh handshake.
+        if http_resp.status() == reqwest::StatusCode::NOT_FOUND {
+            let had_session = self.session_id.read().await.is_some();
+            if had_session {
+                warn!(
+                    method = %method,
+                    url = %self.url,
+                    "got 404 Session not found — clearing stale session and re-initializing"
+                );
+                // Clear the dead session so the next request goes without Mcp-Session-Id
+                *self.session_id.write().await = None;
+
+                // Re-initialize: send a fresh "initialize" handshake to get a new session
+                let init_params = serde_json::json!({
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": { "name": "moltis", "version": env!("CARGO_PKG_VERSION") }
+                });
+                let init_req = JsonRpcRequest::new(
+                    self.next_id.fetch_add(1, Ordering::SeqCst),
+                    "initialize",
+                    Some(init_params),
+                );
+                let init_resp = self.send_with_auth_retry("initialize", &init_req).await?;
+                if init_resp.status().is_success() {
+                    // Complete the MCP handshake with initialized notification
+                    let _ = self
+                        .notify("notifications/initialized", None)
+                        .await;
+                    info!(url = %self.url, "session re-initialized after 404, retrying original request");
+                    // Retry the original request with the fresh session
+                    let retry_id = self.next_id.fetch_add(1, Ordering::SeqCst);
+                    let retry_req = JsonRpcRequest::new(retry_id, method, params_backup);
+                    http_resp = self.send_with_auth_retry(method, &retry_req).await?;
+                } else {
+                    let status = init_resp.status();
+                    bail!(
+                        "MCP re-initialize failed with HTTP {status} after stale session on '{method}'"
+                    );
+                }
+            }
+        }
 
         if !http_resp.status().is_success() {
             let status = http_resp.status();
@@ -381,15 +427,32 @@ impl McpTransport for SseTransport {
             req = req.header("Authorization", format!("Bearer {}", token.expose_secret()));
         }
 
+        let has_session = self.session_id.read().await.is_some();
+
         match req.send().await {
             Ok(resp) => {
                 self.store_session_id_from_response(&resp).await;
-                // Any HTTP response (even 4xx) means the server is reachable.
-                // Streamable HTTP endpoints return 400/405 on GET because they
-                // only accept POST — that still proves the server is alive.
-                // Only 5xx indicates a malfunctioning server worth restarting.
                 let status = resp.status();
-                !status.is_server_error()
+
+                // 5xx = server is broken
+                if status.is_server_error() {
+                    return false;
+                }
+
+                // 404 when we hold a session ID = stale session after server restart.
+                // MCP spec: client MUST re-initialize on 404 with session attached.
+                // Return false to trigger health-monitor restart (fresh session).
+                if has_session && status == reqwest::StatusCode::NOT_FOUND {
+                    warn!(
+                        url = %self.url,
+                        "is_alive: got 404 with active session — session is stale, need reconnect"
+                    );
+                    return false;
+                }
+
+                // 400/405 without session = server alive, method not allowed (GET on POST-only).
+                // Any other 4xx = server reachable.
+                true
             }
             // Network error (timeout, connection refused, DNS failure) = truly dead
             Err(_) => false,
