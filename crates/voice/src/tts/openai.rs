@@ -266,9 +266,9 @@ mod tests {
             Some(Secret::new("key".into())),
             None,
             None,
-            Some("https://api.electronhub.ai/v1".into()),
+            Some("https://api.example.com/v1".into()),
         );
-        assert_eq!(provider.base_url, "https://api.electronhub.ai/v1");
+        assert_eq!(provider.base_url, "https://api.example.com/v1");
     }
 
     #[test]

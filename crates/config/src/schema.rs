@@ -284,7 +284,7 @@ pub struct VoiceOpenAiConfig {
         deserialize_with = "crate::schema::deserialize_option_secret"
     )]
     pub api_key: Option<Secret<String>>,
-    /// Custom API base URL for OpenAI-compatible providers (e.g. ElectronHub).
+    /// Custom API base URL for OpenAI-compatible providers (e.g. LiteLLM).
     /// Defaults to https://api.openai.com/v1 when not set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
