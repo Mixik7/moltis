@@ -1,6 +1,12 @@
 # Moltis Atlas — Parsing Manager Setup Guide
 
-## Current Status (2026-03-21, updated S83)
+> ⚠️ **Model & hallucination facts moved.** The LLM/model claims and the "anti-hallucination" framing in this
+> file were stale and misleading. The authoritative, evidence-based record (verified root cause, the
+> keep/avoid model list with live prices, MCP + billing facts) is
+> **[`MODEL_SELECTION_AND_HALLUCINATION.md`](MODEL_SELECTION_AND_HALLUCINATION.md)**. Read that first for
+> anything about which model to use or why Moltis hallucinated.
+
+## Current Status (2026-03-21, updated S83; model facts corrected 2026-06-20)
 
 ### DONE (verified via API + DM test + Telegram)
 - [x] Step 1: TG-Kombain MCP — 76 tools (16 modules), state: running
@@ -10,7 +16,11 @@
 - [x] Step 5: Verified — all 3 bots respond correctly
 
 ### Voice & AI Stack (Phase 6.5)
-- [x] **LLM**: Gemini 2.0 Flash via OpenRouter (primary)
+- [x] **LLM**: OpenRouter (`custom-openrouter-ai`). **Current model: `z-ai/glm-4.7`** (2026-06-20). The model
+      MUST be a reliable native tool-caller — `gemini-2.5-flash`/`gemma`/`*-flash-lite`/`:free` return
+      `tool_calls=0` and hallucinate (do NOT use). Keep/avoid list + prices:
+      [`MODEL_SELECTION_AND_HALLUCINATION.md`](MODEL_SELECTION_AND_HALLUCINATION.md). _(Was "Gemini 2.0 Flash" —
+      that was the cause of the hallucination, corrected 2026-06-20. ElectronHub provider removed — dead free tier.)_
 - [x] **TTS**: OpenAI gpt-4o-mini-tts (voice: nova)
 - [x] **STT**: Groq Whisper (whisper-large-v3-turbo, language: ru)
 - [x] **Web Search**: Brave Search API (BRAVE_API_KEY)
@@ -68,7 +78,13 @@ Moltis connects directly to TG-Kombain MCP (not via proxy):
 
 ---
 
-## Step 2: N8N MCP Server (DONE)
+## Step 2: N8N MCP Server (⚠️ CURRENTLY BROKEN as of 2026-06-20)
+
+> ⚠️ **The N8N MCP OAuth is failing in production:** `MCP OAuth token refresh failed server=n8n-production-fc90
+> ... 400 Bad Request` every 30s — this is ~89% of Moltis's log volume and its tools are intermittently
+> unavailable. The "running, authenticated" status below is STALE. Fix or disable the n8n MCP OAuth
+> registration (re-issue the MCP Access Token / OAuth client in the N8N Web UI). TG-Kombain MCP (Step 1) is
+> healthy and unaffected.
 
 N8N provides instance-level MCP with 3 meta-tools:
 
@@ -99,7 +115,9 @@ In Moltis Web UI → Settings → Identity → SOUL.md textarea, paste the conte
 Key features of the current SOUL.md (S83, 2026-03-21):
 - 76 MCP tools (16 modules) from TG-Kombain — all modules listed with individual tools
 - 3 N8N meta-tools (search_workflows, get_workflow_details, execute_workflow)
-- Anti-hallucination guards (known fake data list, data integrity rules)
+- Data-integrity rules (call tools, present only real data) — KEEP these. **Note:** the "known fake data"
+  hardcoded blocklist is a symptom-patch, NOT a fix — the real cause was a weak tool-calling model
+  (see [`MODEL_SELECTION_AND_HALLUCINATION.md`](MODEL_SELECTION_AND_HALLUCINATION.md)). Don't rely on the list.
 - Parse -> Fetch mandatory workflow (5-step chain)
 - Cron usage rules (session targets, forbidden patterns)
 - Task lifecycle management (duplicate prevention)
@@ -213,8 +231,10 @@ Run these checks in Moltis Web UI chat:
 
 | Проблема | Решение |
 |----------|---------|
+| **Moltis выдумывает данные (каналы/аккаунты)** | **Слабая модель не зовёт инструменты (`tool_calls=0`). Смени модель на сильный tool-caller (GLM/GPT/Claude), НЕ gemini-flash/gemma/`:free`. См. [`MODEL_SELECTION_AND_HALLUCINATION.md`](MODEL_SELECTION_AND_HALLUCINATION.md).** |
+| **`HTTP 402: requires more credits` / Auto-compact failed** | **На OpenRouter кончились кредиты — пополни https://openrouter.ai/settings/credits. Это биллинг, не баг.** |
 | MCP tools не видны | Moltis Web UI → MCP → check connection state. Reload if "error" |
-| SSE session expired | Moltis auto-reconnects; if stuck, manually reload MCP connection |
-| N8N MCP auth fail | Проверить MCP Access Token в N8N UI (Settings > MCP Access) — NOT API JWT |
+| SSE session expired / 0 tools на время | Moltis auto-reconnects; первая попытка часто падает (`MCP initialize request failed`), вторая успешна (~30-90с окно). Health-monitor НЕ перезапускает "running but 0 tools" — известное слепое пятно. |
+| N8N MCP auth fail (400 каждые 30с) | OAuth токен n8n протух — пере-выпусти MCP Access Token / OAuth-клиент в N8N UI (Settings > MCP Access). NOT API JWT. |
 | Trailing slash | URL must end with `/mcp/` (with slash) — without it = 307 redirect loop |
 | Tools show 0 | Stateful protocol: initialize must complete before tools/list works |

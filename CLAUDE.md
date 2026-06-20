@@ -205,6 +205,21 @@ New crate: add `run_migrations()` to `lib.rs`, call from `server.rs` in dependen
 - Make model lists broad (API errors handle unavailable models). Check `../clawdbot/` for reference.
 - BYOM providers (OpenRouter, Ollama): require user config, don't hardcode models.
 
+### ⚠️ Model selection is load-bearing for agent correctness (read before debugging "hallucination")
+
+The agent fabricates data **only when the configured model is a weak tool-caller that returns `tool_calls=0`**
+despite tools being loaded (`native_tools=true`, 92+ schemas sent natively). This is a MODEL problem, not a
+prompt/MCP problem. `supports_tools_for_model` trusts the model *name* (defaults `true`) and does NOT verify
+the model actually emits tool calls — so a weak OpenRouter model passes the gate and then answers in prose.
+- **Never route an agent to:** `google/gemini-2.5-flash`, any `gemma-*`, `*-flash-lite`, `:free`, sub-14B.
+  They return `tool_calls=0`. Proven in prod logs + Google's own forums.
+- **Use reliable tool-callers:** GLM (`z-ai/glm-4.7`), GPT (`openai/gpt-5.1-chat`), Claude (`anthropic/claude-haiku-4.5`).
+- Durable fix (not yet shipped): a **grounding gate** in `crates/agents/src/runner.rs` near the
+  `tool_calls.is_empty()` return (`runner.rs:995`) — refuse to return data-shaped text when no tool was called.
+- Full evidence, keep/avoid list with live prices, MCP + billing facts:
+  [`moltis/MODEL_SELECTION_AND_HALLUCINATION.md`](moltis/MODEL_SELECTION_AND_HALLUCINATION.md). The older
+  `SETUP_GUIDE.md` "Gemini 2.0 Flash" / "anti-hallucination = known fake data list" claims were WRONG.
+
 ## Changelog
 
 Update `[Unreleased]` in `CHANGELOG.md` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/))
