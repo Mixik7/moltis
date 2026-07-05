@@ -116,3 +116,50 @@ railway logs -n 4000 | grep -iE "agent loop|tool_calls=" | grep -v "OAuth token 
 # server side: is TG-Kombain serving 76 tools?  GET /api/mcp-status (admin Bearer)
 ```
 A data request with `tool_calls=0` = weak model → switch per §4. `tool_calls=1+` with real data = healthy.
+
+## 9. Cron / agent-turn default model — a distinct trap (verified 2026-07-05)
+
+§3 ("pin a strong model") is true for the **interactive** picker, but it does **NOT** cover unattended
+**cron agent-turn** jobs. This bit a real automation and cost several 403 runs before it was traced.
+
+**The trap.** A cron job created with model = *"(default)"* stores `payload.model = null`
+(`CronPayload::AgentTurn`, `crates/cron/src/types.rs`). At run time the cron service calls
+`chat.send_sync` (`crates/gateway/src/server.rs:1727-1734`, `on_agent_turn`), which resolves a `null`
+model via **`reg.first_with_tools()`** (`crates/gateway/src/chat.rs:3441`) — the *first tool-capable
+provider in the registry*. **Pinning does not reorder that registry:** `priority_models` /
+`provider_keys.json.models[]` only pin the **selector/picker** ordering (`provider_setup.rs:2530/2576`),
+not `reg.first_with_tools()`. So on an account where the first registry entry is a ToS-blocked model
+(e.g. the reseller account here only permits `z-ai/*` — Anthropic/Google via OpenRouter return
+`HTTP 403 "violation of provider Terms Of Service"`), a *pinned* config still 403s for cron, instantly
+(~200 ms, 0 tokens), while interactive chats using the pinned model work.
+
+**Evidence.** `iDEA discovery digest` cron, Run History: 3× `error 199-276ms HTTP 403` (model=null) →
+after setting an **explicit** model, `ok 79-82s, ~114K in / 2-3K out` on `z-ai/glm-4.7`, real MCP tool
+calls + real output.
+
+**The fix — set the model EXPLICITLY on the cron job (never leave it "default").** The Edit-Job UI
+`ModelSelect` combo is a normal combobox (`assets/js/ui.js`), but cron CRUD is a WebSocket RPC, so the
+robust, scriptable way (also the volume-reset re-apply runbook — the job lives only in
+`crates/cron/src/store_sqlite.rs` on the Railway volume, **not in git**) is, from the authenticated Web UI
+console:
+
+```js
+// helpers.sendRpc — the same RPC the Save button uses. CronJobPatch is all-Option → partial patch.
+const { sendRpc } = await import('/assets/v/<build>/js/helpers.js');
+const { payload: jobs } = await sendRpc('cron.list', {});
+const job = jobs.find(j => j.name === 'iDEA discovery digest');
+await sendRpc('cron.update', { id: job.id, patch: {
+  payload: { ...job.payload, model: 'custom-openrouter-ai::z-ai/glm-4.7' }, // explicit, not null
+  sessionTarget: { named: 'idea-digest' },   // stable findable session instead of throwaway UUID
+}});
+```
+
+**Delivery caveat (verified).** `CronPayload::AgentTurn.deliver/channel/to` are **inert for cron**: the
+gateway `on_agent_turn` closure (`server.rs:1727-1735`) reads only `session_target`, `sandbox`, `message`,
+`model` — `grep req.deliver|req.channel|req.to` across `server.rs` = 0. Telegram push exists only for
+**channel** sessions (`deliver_channel_replies_to_targets`, `chat.rs:6411`), which need a
+`ChannelReplyTarget{account_id, chat_id}` derived from an **inbound** message; a cron has none, and the
+config schema has no operator notify-target field. So a scheduled digest can only (a) persist to memory
+(`memory_save`) and (b) land in a findable Named session — **it is pull, not push.** A true scheduled
+Telegram push is a code change (route cron output through `deliver_channel_replies_to_targets` with a new
+configured target), not a config tweak.
