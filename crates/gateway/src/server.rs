@@ -1747,6 +1747,33 @@ pub async fn start_gateway(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+
+            // Scheduled-digest delivery. A cron job may opt in by setting
+            // `deliver=true` plus an explicit Telegram destination in its payload:
+            // `channel` = the bot account_id that sends, `to` = the numeric chat_id.
+            // `send_text` handles markdown->HTML conversion and 4096-char chunking.
+            // Error-isolated: a delivery failure is logged and never fails the run
+            // (the run's own output/tokens are already captured above). With
+            // `deliver=false` (every current job, incl. heartbeat) this is a no-op.
+            if req.deliver && !text.trim().is_empty() {
+                if let (Some(account_id), Some(chat_id)) =
+                    (req.channel.as_deref(), req.to.as_deref())
+                {
+                    if let Some(outbound) = state.services.channel_outbound_arc() {
+                        if let Err(e) =
+                            outbound.send_text(account_id, chat_id, &text, None).await
+                        {
+                            warn!(
+                                account_id,
+                                chat_id,
+                                error = %e,
+                                "cron telegram digest delivery failed"
+                            );
+                        }
+                    }
+                }
+            }
+
             Ok(moltis_cron::service::AgentTurnResult {
                 output: text,
                 input_tokens,
